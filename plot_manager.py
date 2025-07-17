@@ -1,0 +1,165 @@
+import streamlit as st
+import matplotlib.pyplot as plt
+import pandas as pd
+import numpy as np
+
+class PlotManager:
+    @st.cache_data
+    def plot_belastingduurkromme(_self, _verbruiken: list[float]):
+        punten = PlotManager._bereken_belastingduurkromme(_verbruiken)
+        if not punten:
+            st.warning("Geen data om te plotten.")
+            return
+        duur, belasting = zip(*punten)
+        
+        fig, ax = plt.subplots(figsize=(8, 5))
+        
+        ax.plot(duur, belasting, marker='o', label="Belastingduurkromme")
+        ax.set_xlabel('Duur (%)')
+        ax.set_ylabel('Belasting (verbruik)')
+        ax.set_title('Belastingduurkromme')
+        ax.grid(True)
+        ax.legend()
+        st.pyplot(fig)
+
+    def _bereken_belastingduurkromme(verbruiken):
+        n = len(verbruiken)
+        if n == 0:
+            return []
+        gesorteerd = sorted(verbruiken, reverse=True)
+        resultaat = []
+        for i, waarde in enumerate(gesorteerd):
+            duur = i / n * 100
+            resultaat.append((duur, waarde))
+        return resultaat
+    @st.cache_data
+    def plot_energiebalans_dag(_self, _verbruik: pd.DataFrame, _opbrengst: pd.DataFrame, _max_afname, _max_teruglevering):
+        min_len = min(len(_verbruik), len(_opbrengst))
+        verbruik = _verbruik.iloc[:min_len]
+        opbrengst = _opbrengst.iloc[:min_len]
+        tijdstappen = verbruik.index[:min_len]
+        verbruik_s = verbruik
+        opbrengst_s = opbrengst
+        saldo = opbrengst_s - verbruik_s
+        saldo_beperkt = saldo.copy()
+        saldo_beperkt[saldo < 0] = saldo[saldo < 0].clip(lower=-_max_afname)
+        saldo_beperkt[saldo > 0] = saldo[saldo > 0].clip(upper=_max_teruglevering)
+        totaal_saldo = saldo_beperkt.sum()
+
+        show_verbruik = True #st.checkbox("Toon verbruik", value=True, key="dag_verbruik")
+        show_opbrengst = True #st.checkbox("Toon opbrengst", value=True, key="dag_opbrengst")
+        show_saldo = True #st.checkbox("Toon saldo (beperkt)", value=True, key="dag_saldo")
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+        if show_verbruik:
+            ax.plot(tijdstappen, verbruik_s, label='Verbruik', color='red')
+        if show_opbrengst:
+            ax.plot(tijdstappen, opbrengst_s, label='Opbrengst', color='green')
+        if show_saldo:
+            ax.plot(tijdstappen, saldo_beperkt, label='Saldo (beperkt)', color='blue')
+        ax.axhline(0, color='black', linewidth=0.8, linestyle='--')
+        ax.axhline(-_max_afname, color='grey', linewidth=0.8, linestyle=':', label='Max afname')
+        ax.axhline(_max_teruglevering, color='orange', linewidth=0.8, linestyle=':', label='Max teruglevering')
+        ax.set_xlabel('Tijdstap')
+        ax.set_ylabel('Energie')
+        ax.set_title(f'Energiebalans dag (totaal saldo: {totaal_saldo:.2f})')
+        ax.legend()
+        ax.grid(True)
+        fig.tight_layout()
+        st.pyplot(fig)
+        
+    @st.cache_data
+    def plot_dagbalans_jaar(_self, _verbruik_jaar: pd.DataFrame, _opbrengst_jaar: pd.DataFrame, _max_afname, _max_teruglevering):
+        opbrengst_jaar = _opbrengst_jaar
+        verbruik_jaar = _verbruik_jaar
+
+        verbruik_jaar.index = pd.to_datetime(verbruik_jaar)
+        opbrengst_jaar.index = pd.to_datetime(opbrengst_jaar)
+        st.write(f"Aantal datapunten {len(verbruik_jaar)} verbruik, {len(opbrengst_jaar)} opbrengst, vorm: {verbruik_jaar.head()}")
+        dagen = sorted(set(verbruik_jaar.index.normalize()) & set(opbrengst_jaar.index.normalize()))
+        st.write(f"Vorm dagen: {dagen[:5]}... ({len(dagen)} totaal)")
+        dagresultaten = []
+        st.write(f"Aantal dagen met data: {len(dagen)}")
+        for dag in dagen:
+            v_dag = verbruik_jaar[verbruik_jaar.index.normalize() == dag]
+            o_dag = opbrengst_jaar[opbrengst_jaar.index.normalize() == dag]
+            min_len = min(len(v_dag), len(o_dag))
+            if min_len == 0:
+                continue
+            v_dag = v_dag.iloc[:min_len]
+            o_dag = o_dag.iloc[:min_len]
+            verbruik_s = v_dag.sum(axis=1) if isinstance(v_dag, pd.DataFrame) else v_dag
+            # Tel alle kolommen van opbrengst bij elkaar op tot één Series
+            if isinstance(o_dag, pd.DataFrame):
+                opbrengst_s = o_dag.sum(axis=1)
+            else:
+                opbrengst_s = o_dag
+            saldo = opbrengst_s - verbruik_s
+            saldo_beperkt = saldo.copy()
+            """saldo_beperkt[saldo < 0] = saldo[saldo < 0].clip(lower=-max_afname)
+            saldo_beperkt[saldo > 0] = saldo[saldo > 0].clip(upper=max_teruglevering)"""
+            dagresultaten.append({
+                'dag': dag,
+                'verbruik': verbruik_s.sum(),
+                'opbrengst': opbrengst_s.sum(),
+                'saldo': saldo_beperkt.sum()
+            })
+
+        if not dagresultaten:
+            st.warning("Geen overlappende dagen met data gevonden.")
+            return
+        st.write(f"📅 Aantal dagen met data: {len(dagresultaten)}, voorbeeld data: {dagresultaten}")
+        df_dagbalans = pd.DataFrame(dagresultaten).set_index('dag')
+        show_verbruik = st.checkbox("Toon verbruik", value=True, key="jaar_verbruik")
+        show_opbrengst = st.checkbox("Toon opbrengst", value=True, key="jaar_opbrengst")
+        show_saldo = st.checkbox("Toon saldo", value=True, key="jaar_saldo")
+
+        fig, ax = plt.subplots(figsize=(12, 6))
+        if show_verbruik:
+            ax.plot(df_dagbalans.index, df_dagbalans['verbruik'], label='Totaal verbruik per dag', color='red')
+        if show_opbrengst:
+            ax.plot(df_dagbalans.index, df_dagbalans['opbrengst'], label='Totaal opbrengst per dag', color='green')
+        if show_saldo:
+            ax.plot(df_dagbalans.index, df_dagbalans['saldo'], label='Dagbalans (beperkt)', color='blue')
+        ax.axhline(0, color='black', linewidth=0.8, linestyle='--')
+        ax.set_xlabel('Datum')
+        ax.set_ylabel('Energie')
+        ax.set_title('Dagelijkse energiebalans over het jaar')
+        ax.legend()
+        ax.grid(True)
+        fig.tight_layout()
+        st.pyplot(fig)
+
+    @st.cache_data
+    def plot_reeksen_en_verschil(_self, _opbrengst: pd.Series, _verbruik: pd.Series, _titel="Opbrengst vs Verbruik"):
+        opbrengst = _opbrengst
+        verbruik = _verbruik
+        titel = _titel
+        min_len = min(len(opbrengst), len(verbruik))
+        opbrengst = opbrengst.iloc[:min_len]
+        verbruik = verbruik.iloc[:min_len]
+        st.write(f"Aantal datapunten: {len(opbrengst)} opbrengst, {len(verbruik)} verbruik")
+        #st.write(opbrengst.head())
+        index = opbrengst.index
+        verschil = opbrengst[:min_len] - verbruik[:min_len]       
+        
+        st.write(verbruik.head(),verbruik.shape,opbrengst.head(),opbrengst.shape)#verschil.head(),verschil.shape)
+        show_opbrengst = st.checkbox("Toon opbrengst", value=True, key="reeksen_opbrengst")
+        show_verbruik = st.checkbox("Toon verbruik", value=True, key="reeksen_verbruik")
+        show_verschil = st.checkbox("Toon verschil", value=True, key="reeksen_verschil")
+
+        fig, ax = plt.subplots(figsize=(12, 6))
+        if show_opbrengst:
+            ax.plot(index, opbrengst, label="Opbrengst", color="green")
+        if show_verbruik:
+            ax.plot(index, verbruik, label="Verbruik", color="red")
+        if show_verschil:
+            ax.plot(index, verschil, label="Verschil (Opbrengst - Verbruik)", color="blue")
+        ax.axhline(0, color='black', linewidth=0.8, linestyle='--')
+        ax.set_xlabel("Tijd")
+        ax.set_ylabel("Energie")
+        ax.set_title(titel)
+        ax.legend()
+        ax.grid(True)
+        fig.tight_layout()
+        st.pyplot(fig)
