@@ -3,6 +3,7 @@ import pandas as pd
 from plot_manager import PlotManager
 from energiebalans_plotter import plot_max_kwartierverbruik_heatmap
 from kwartierdata_processor import KwartierdataProcessor
+import time 
 st.set_page_config(page_title="Energie Analyse (Nieuw)", layout="wide")
 
 st.markdown("""
@@ -66,14 +67,14 @@ if data_type == "Berekenen":
 else:
     uploaded_opbrengst = st.file_uploader("Upload opbrengst kwartierdata (excel, index=datetime)", type=["xlsx"], key="opbrengst")
 
-
-
 df_verbruik = None
 df_opbrengst = None
 
 if uploaded_verbruik and uploaded_opbrengst:
     if uploaded_opbrengst == "Processor":
-        df_opbrengst = KwartierdataProcessor(aantal_jaren=aantal_jaar,
+        start = time.time()
+        with st.spinner("Berekenen kwartierdata..."):
+            df_opbrengst = KwartierdataProcessor(aantal_jaren=aantal_jaar,
                                                breedtegraad=breedtegraad, lengtegraad=lengtegraad,
                                                hellingshoek1=Hellingshoek1, hellingshoek2=Hellingshoek2,
                                                orientatie1=orientatie1, orientatie2=orientatie2, 
@@ -81,6 +82,7 @@ if uploaded_verbruik and uploaded_opbrengst:
                                                begin_dag=begin_datum,  
                                                zonnedata_pos=zonnedata_pos_neg,
                                                rendement=rendement).bereken_kwartieropbrengst()
+        st.write("Duur:", time.time() - start)
     else: 
         df_opbrengst = laad_dataframes(uploaded_opbrengst, index_col=0, parse_dates=True)
     df_verbruik = laad_dataframes(uploaded_verbruik, index_col=0, parse_dates=True)
