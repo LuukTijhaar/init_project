@@ -48,7 +48,7 @@ def Initialize_Systeem(_location, _module, _inverter, _temperature_parameters, _
     model_chain.results.ac = model_chain.results.ac  / 1000  # Convert to kW if needed
     model_chain.results.ac.plot(figsize=(16,9), title='AC Power Output')
     
-    st.pyplot(plt.gcf())  # Show the plot in Streamlit
+    #st.pyplot(plt.gcf())  # Show the plot in Streamlit
     
     
     return model_chain

@@ -3,10 +3,12 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 from copy import deepcopy
+import matplotlib.image as mpimg
 class PlotManager:
     @st.cache_data
     def plot_belastingduurkromme(_self, _verbruiken: list[float]):
         punten = PlotManager._bereken_belastingduurkromme(_verbruiken)
+        logo = mpimg.imread("C:\\Users\\LuukTijhaar(bind)\\vscode\\init_project\\src\\init_project\\LO-Bind-FC-RGB.png")
         if not punten:
             st.warning("Geen data om te plotten.")
             return
@@ -20,6 +22,9 @@ class PlotManager:
         ax.set_title('Belastingduurkromme')
         ax.grid(True)
         ax.legend()
+        logo_ax = fig.add_axes([0.72, 0.65, 0.18, 0.18], anchor='NE', zorder=1)
+        logo_ax.imshow(logo)
+        logo_ax.axis('off')
         st.pyplot(fig)
 
     def _bereken_belastingduurkromme(verbruiken):
@@ -33,7 +38,8 @@ class PlotManager:
             resultaat.append((duur, waarde))
         return resultaat
     
-    def plot_energiebalans_dag(_self, _verbruik: pd.DataFrame, _opbrengst: pd.DataFrame, _max_afname, _max_teruglevering, _positief='positief', _accu_vermogen=0):
+    
+    def plot_energiebalans_dag(_self, _verbruik: pd.DataFrame, _opbrengst: pd.DataFrame, _max_afname, _max_teruglevering, _positief='positief', _accu_vermogen=0, _toon_verbruik=True, _toon_opbrengst=True, _toon_saldo=False, _toon_saldo_beperkt=True, _toon_limieten=True, _toon_limiet_overschrijdingen=False):
         if _positief == 'positief':
             pos = 1
         else: 
@@ -43,6 +49,7 @@ class PlotManager:
             accu = _accu_vermogen
         else: 
             accu = 0
+        logo = mpimg.imread("C:\\Users\\LuukTijhaar(bind)\\vscode\\init_project\\src\\init_project\\LO-Bind-FC-RGB.png")
         min_len = min(len(_verbruik), len(_opbrengst))
         verbruik = _verbruik.iloc[:min_len]
         opbrengst = _opbrengst.iloc[:min_len]
@@ -72,17 +79,14 @@ class PlotManager:
         overmatige_teruglevering = saldo[saldo < -_max_teruglevering]
         overmatige_teruglevering = overmatige_teruglevering + _max_teruglevering
 
-        show_verbruik = True #st.checkbox("Toon verbruik", value=True, key="dag_verbruik")
-        show_opbrengst = True #st.checkbox("Toon opbrengst", value=True, key="dag_opbrengst")
-        show_saldo = True #st.checkbox("Toon saldo (beperkt)", value=True, key="dag_saldo")
+        toon_verbruik = _toon_verbruik
+        toon_opbrengst = _toon_opbrengst
+        toon_saldo = _toon_saldo
+        toon_saldo_beperkt = _toon_saldo_beperkt
+        toon_limieten = _toon_limieten
+        toon_limiet_overschrijdingen = _toon_limiet_overschrijdingen
 
-        toon_verbruik = st.checkbox("Toon verbruik", value=True, key="dag_verbruik")
-        toon_opbrengst = st.checkbox("Toon opbrengst", value=True, key="dag_opbrengst")
-        toon_saldo = st.checkbox("Toon saldo", value=False, key="dag_saldo")
-        toon_saldo_beperkt = st.checkbox("Toon saldo (beperkt)", value=True, key="dag_saldo_beperkt")
-        toon_limieten = st.checkbox("Toon limieten", value=True, key="dag_limieten")
-        toon_limiet_overschrijdingen = st.checkbox("Toon limiet overschrijdingen", value=False, key="dag_limiet_overschrijdingen")
-
+        
 
         fig, ax = plt.subplots(figsize=(10, 6))
         if toon_verbruik:
@@ -105,6 +109,9 @@ class PlotManager:
         ax.set_title(f'Energiebalans dag (totaal saldo: {totaal_saldo:.2f} kWh)')
         ax.legend()
         ax.grid(True)
+        logo_ax = fig.add_axes([0.8, 0.08, 0.18, 0.18], anchor='NE', zorder=1)
+        logo_ax.imshow(logo)
+        logo_ax.axis('off')
         fig.tight_layout()
         st.pyplot(fig)
         st.markdown(f"""
@@ -175,11 +182,14 @@ class PlotManager:
         fig.tight_layout()
         st.pyplot(fig)
 
-    @st.cache_data()
-    def plot_reeksen_en_verschil(_self, _opbrengst: pd.Series, _verbruik: pd.Series, _titel="Opbrengst vs Verbruik", show_opbrengst=True, show_verbruik=True, show_verschil=True):
+   
+    def plot_reeksen_en_verschil(_self, _opbrengst: pd.Series, _verbruik: pd.Series, _titel="Opbrengst vs Verbruik", show_opbrengst=True, show_verbruik=True, show_verschil=True, _max_afname=0, _max_teruglevering=0):
         opbrengst = _opbrengst
         verbruik = _verbruik
         titel = _titel
+        logo = mpimg.imread("C:\\Users\\LuukTijhaar(bind)\\vscode\\init_project\\src\\init_project\\LO-Bind-FC-RGB.png")
+        max_afname = _max_afname
+        max_teruglevering = _max_teruglevering
         min_len = min(len(opbrengst), len(verbruik))
         opbrengst = opbrengst.iloc[:min_len]
         verbruik = verbruik.iloc[:min_len]
@@ -198,11 +208,16 @@ class PlotManager:
             ax.plot(index, verbruik, label="Verbruik", color="red")
         if show_verschil:
             ax.plot(index, verschil, label="Verschil (Verbruik - Opbrengst)", color="blue")
+        ax.axhline(max_afname, color='red', linewidth=0.8, linestyle='-', label='Max afname')
+        ax.axhline(-max_teruglevering, color='purple', linewidth=0.8, linestyle='-', label='Max teruglevering')
         ax.axhline(0, color='black', linewidth=0.8, linestyle='--')
         ax.set_xlabel("Tijd")
-        ax.set_ylabel("Energie")
+        ax.set_ylabel("Energie (kW)")
         ax.set_title(titel)
         ax.legend()
         ax.grid(True)
+        logo_ax = fig.add_axes([0.8, 0.08, 0.18, 0.18], anchor='NE', zorder=1)
+        logo_ax.imshow(logo)
+        logo_ax.axis('off')
         fig.tight_layout()
         st.pyplot(fig)

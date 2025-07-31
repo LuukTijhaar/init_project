@@ -1,14 +1,20 @@
 import streamlit as st
 import pandas as pd
 from plot_manager import PlotManager
-from energiebalans_plotter import plot_max_kwartierverbruik_heatmap
-#from kwartierdata_processor import KwartierdataProcessor
 from pvlib_init import Initialize_Systeem, get_parameters
 import time 
+from PIL import Image
+import urllib.request
 import matplotlib.pyplot as plt
+from matplotlib.offsetbox import OffsetImage, AnnotationBbox
+import matplotlib.image as mpimg
+import io 
+import os
+from pathlib import Path
 
 st.set_page_config(page_title="Energie Analyse (Nieuw)", layout="wide")
 
+logo = mpimg.imread("C:\\Users\\LuukTijhaar(bind)\\vscode\\init_project\\src\\init_project\\LO-Bind-FC-RGB.png")
 
 st.markdown("""
 <style>
@@ -118,15 +124,15 @@ if uploaded_verbruik and uploaded_opbrengst:
                 _start_date=begin_datum, 
                 _end_date=begin_datum + pd.DateOffset(years=1))
             
-            st.write(df_opbrengst2.results.ac.head())
+            #st.write(df_opbrengst2.results.ac.head())
             df_opbrengst = df_opbrengst1.results.ac*Reeksen1 + df_opbrengst2.results.ac*Reeksen2
-            st.write(df_opbrengst.head())
-            plt.clf()
-            df_opbrengst.plot(figsize=(16, 9), title='AC Power Output')
+            #st.write(df_opbrengst.head())
+            #plt.clf()
+            #df_opbrengst.plot(figsize=(16, 9), title='AC Power Output')
 
             st.write(f"opbrengst over een jaar totaal: {df_opbrengst.sum()/4000}, zijde 1: {df_opbrengst1.results.ac.sum()/4000}, zijde 2: {df_opbrengst2.results.ac.sum()/4000}")
             
-            st.pyplot(plt.gcf())  # Show the plot in Streamlit
+            #st.pyplot(plt.gcf())  # Show the plot in Streamlit
             "df_opbrengst = bereken_opbrengst(aantal_jaren=aantal_jaar, breedtegraad=breedtegraad, lengtegraad=lengtegraad, hellingshoek1=Hellingshoek1, hellingshoek2=Hellingshoek2, orientatie1=orientatie1, orientatie2=orientatie2, wp1=WP1, wp2=WP2,begin_dag=begin_datum,zonnedata_pos=zonnedata_pos_neg,rendement=rendement).bereken_kwartieropbrengst()"
         st.write("Duur:", time.time() - start)
     else: 
@@ -135,9 +141,9 @@ if uploaded_verbruik and uploaded_opbrengst:
     
     st.success("✅ Data succesvol geladen!")
     st.markdown('<div class="section-header">Voorbeeld verbruik</div>', unsafe_allow_html=True)
-    st.dataframe(df_verbruik.head(), use_container_width=True)
+    st.dataframe(df_verbruik, use_container_width=True)
     st.markdown('<div class="section-header">Voorbeeld opbrengst</div>', unsafe_allow_html=True)
-    st.dataframe(df_opbrengst.head(), use_container_width=True)
+    st.dataframe(df_opbrengst, use_container_width=True)
 
     st.markdown('<div class="section-header">2. Selecteer kolommen verbruik en opbrengst</div>', unsafe_allow_html=True)
     
@@ -175,7 +181,7 @@ if uploaded_verbruik and uploaded_opbrengst:
     with tab2:
         st.markdown("#### Energiebalans op een dag")
         dag = st.date_input("Kies een dag", value=data_verbruik.index[0].date())
-        st.write(f"🔍 Gekozen dag: {dag} ({type(dag)})")
+        st.write(f"🔍 Gekozen dag: {dag}")
 
         # Zet 'dag' om naar pd.Timestamp (essentieel)
         dag = pd.to_datetime(dag)
@@ -188,8 +194,16 @@ if uploaded_verbruik and uploaded_opbrengst:
         verbruik_op_dag = data_verbruik[mask_v]
         opbrengst_op_dag = data_opbrengst[mask_o]
         
+        toon_verbruik = st.checkbox("Toon verbruik", value=True, key="dag_verbruik")
+        toon_opbrengst = st.checkbox("Toon opbrengst", value=True, key="dag_opbrengst")
+        toon_saldo = st.checkbox("Toon saldo", value=False, key="dag_saldo")
+        toon_saldo_beperkt = st.checkbox("Toon saldo (beperkt)", value=True, key="dag_saldo_beperkt")
+        toon_limieten = st.checkbox("Toon limieten", value=True, key="dag_limieten")
+        toon_limiet_overschrijdingen = st.checkbox("Toon limiet overschrijdingen", value=False, key="dag_limiet_overschrijdingen")
+
+
         if mask_v.sum() > 0 and mask_o.sum() > 0:
-            plotter.plot_energiebalans_dag(data_verbruik[mask_v], data_opbrengst[mask_o], max_afname, max_teruglevering, _positief=zonnedata_pos_neg)
+            plotter.plot_energiebalans_dag(data_verbruik[mask_v], data_opbrengst[mask_o], max_afname, max_teruglevering, _positief=zonnedata_pos_neg, _toon_verbruik=toon_verbruik, _toon_opbrengst=toon_opbrengst, _toon_saldo=toon_saldo, _toon_saldo_beperkt=toon_saldo_beperkt, _toon_limieten=toon_limieten, _toon_limiet_overschrijdingen=toon_limiet_overschrijdingen)
         else:
             st.info("Geen data voor deze dag.")
 
@@ -225,6 +239,9 @@ if uploaded_verbruik and uploaded_opbrengst:
             ax.set_xlabel("Datum")
             ax.set_ylabel("Energie (som per dag)")
             ax.set_title("Dagtotalen verbruik, opbrengst en verschil")
+            logo_ax = fig.add_axes([0.8, 0.08, 0.18, 0.18], anchor='NE', zorder=1)
+            logo_ax.imshow(logo)
+            logo_ax.axis('off')
             ax.legend()
             ax.grid(True)
             fig.tight_layout()
@@ -239,12 +256,101 @@ if uploaded_verbruik and uploaded_opbrengst:
         show_opbrengst = st.checkbox("Toon opbrengst", value=True, key="reeksen_opbrengst")
         show_verbruik = st.checkbox("Toon verbruik", value=True, key="reeksen_verbruik")
         show_verschil = st.checkbox("Toon verschil", value=True, key="reeksen_verschil")
-        plotter.plot_reeksen_en_verschil(_verbruik=data_verbruik, _opbrengst=data_opbrengst, show_opbrengst=show_opbrengst, show_verbruik=show_verbruik, show_verschil=show_verschil)
+        plotter.plot_reeksen_en_verschil(_verbruik=data_verbruik, _opbrengst=data_opbrengst, show_opbrengst=show_opbrengst, show_verbruik=show_verbruik, show_verschil=show_verschil, _max_afname=max_afname, _max_teruglevering=max_teruglevering)
 
     with tab5:
         st.markdown("#### Heatmap: Max kwartierverbruik per dag (% van limiet)")
-        kolom_v = st.selectbox("Kies verbruikskolom voor heatmap", data_verbruik, key="heatmap_verbruik")
-        plot_max_kwartierverbruik_heatmap(data_verbruik, max_afname)
+        def plot_max_dagpiek_heatmap(verbruik: pd.Series, opbrengst: pd.Series, max_afname: float):
+            """
+            Plot een heatmap van het hoogste (verbruik - opbrengst) per dag als percentage van max_afname.
+            Geeft ook aan hoe vaak het limiet wordt overschreden.
+            """
+            from matplotlib.colors import LinearSegmentedColormap
+            import seaborn as sns
+
+            # Zorg dat indexen datetime zijn
+            verbruik = verbruik.copy()
+            opbrengst = opbrengst.copy()
+            verbruik.index = pd.to_datetime(verbruik.index)
+            opbrengst.index = pd.to_datetime(opbrengst.index)
+
+            # Zorg dat series even lang zijn
+            min_len = min(len(verbruik), len(opbrengst))
+            verbruik = verbruik.iloc[:min_len]
+            opbrengst = opbrengst.iloc[:min_len]
+
+            # Verschil per kwartier
+            verschil = verbruik - opbrengst
+
+            # Per dag: hoogste kwartierwaarde (piek) van verschil
+            piek_per_dag = verschil.resample('D').max()
+
+            # Zet om naar percentage van max_afname
+            perc_per_dag = (piek_per_dag / max_afname) * 100
+
+            # Statistiek: aantal dagen limiet overschreden
+            overschrijdingen = (piek_per_dag > max_afname).sum()
+            totaal_dagen = piek_per_dag.shape[0]
+
+            # Maak DataFrame met dag en maand
+            df = pd.DataFrame({'percentage': perc_per_dag})
+            df['dag'] = df.index.day
+            df['maand'] = df.index.month_name()
+
+            # Pivot: rijen = maand, kolommen = dag
+            pivot = df.pivot_table(index="maand", columns="dag", values="percentage", aggfunc="mean")
+
+            # Maanden in logische volgorde
+            maanden_volgorde = [
+                "January", "February", "March", "April", "May", "June",
+                "July", "August", "September", "October", "November", "December"
+            ]
+            pivot = pivot.reindex(maanden_volgorde)
+
+            colors = [
+                (0.0, 'green'),
+                (0.8, 'yellow'),
+                (1.0, 'red'),
+            ]
+
+            custom_cmap = LinearSegmentedColormap.from_list("green_yellow_red", colors)
+
+            fig, ax = plt.subplots(figsize=(16, 8))
+            sns.heatmap(pivot, annot=True, fmt=".1f", cmap=custom_cmap, vmin=0, vmax=100,
+                        linewidths=0.5, linecolor='gray', ax=ax)
+
+            ax.set_title("Max kwartierverbruik per dag (% van max afname)", fontsize=16)
+            ax.set_xlabel("Dag van de maand")
+            ax.set_ylabel("Maand")
+            plt.tight_layout()
+            logo_ax = fig.add_axes([0.8, -0.10, 0.18, 0.18], anchor='NE', zorder=1)
+            logo_ax.imshow(logo)
+            logo_ax.axis('off')
+            # Hoogste dag
+            max_perc = perc_per_dag.max()
+            max_dag = perc_per_dag.idxmax()
+            st.pyplot(fig)
+            st.write(f"📅 **Dag met hoogste piek:** {max_dag.date()} met {max_perc:.2f}% van max afname")
+            st.write(f"🚨 **Aantal dagen limiet overschreden:** {overschrijdingen} van {totaal_dagen} dagen ({overschrijdingen/totaal_dagen:.1%})")
+
+        plot_max_dagpiek_heatmap(data_verbruik, data_opbrengst, max_afname)
+
+
+    df = pd.DataFrame({
+        "Verbruik (kW)": data_verbruik,
+        "Opbrengst (kW)": data_opbrengst})
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer: 
+        df.to_excel(writer, index=True, sheet_name="Kwartierdata Resultaten")
+        writer.close()
+        processed_data = output.getvalue()
+    st.info("Download hier je resultaten als Excel-bestand.")
+    st.download_button(
+    label="📥 Download resultaten als Excel",
+    data=processed_data,
+    file_name="kwartierdata_resultaten.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
 
 else:
     st.warning("Upload zowel verbruik als opbrengst kwartierdata-bestanden om te starten.")
