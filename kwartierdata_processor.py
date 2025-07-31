@@ -8,14 +8,81 @@ import matplotlib.image as mpimg
 from typing import Literal, TypedDict 
 import seaborn as sns
 
+correctiewaarden = {
+    "oost": {
+        0:  {"factor": 0.8,  "tijd": -0.0},   # 30 minuten eerder
+        15: {"factor": 0.79, "tijd": -0.30},
+        45: {"factor": 0.72, "tijd": -0.45},
+        90: {"factor": 0.46, "tijd": -0.60},
+        "default": {"factor": 0.46, "tijd": -0.35}
+    },
+    "west": {
+        0:  {"factor": 0.8,  "tijd": 0.0},    # 30 minuten later
+        15: {"factor": 0.79, "tijd": 0.30},
+        45: {"factor": 0.71, "tijd": 0.45},
+        90: {"factor": 0.45, "tijd": 0.60},
+        "default": {"factor": 0.45, "tijd": 0.35}
+    },
+    "zuid": {
+        0:  {"factor": 0.8,  "tijd": 0},
+        15: {"factor": 0.88, "tijd": 0},
+        45: {"factor": 0.91, "tijd": 0},
+        90: {"factor": 0.64, "tijd": 0},
+        "default": {"factor": 0.64, "tijd": 0}
+    },
+    "noord": {
+        0:  {"factor": 0.8,  "tijd": 0},   # nauwelijks zon: tijd niet zinvol
+        15: {"factor": 0.69, "tijd": 0},
+        45: {"factor": 0.44, "tijd": 0},
+        90: {"factor": 0.18, "tijd": 0},
+        "default": {"factor": 0.18, "tijd": 0}
+    },
+    "zuidoost": {
+        0:  {"factor": 0.8,  "tijd": -0},
+        15: {"factor": 0.86, "tijd": -0.15},
+        45: {"factor": 0.86, "tijd": -0.25},
+        90: {"factor": 0.6, "tijd": -0.35},
+        "default": {"factor": 0.6, "tijd": -25}
+    },
+    "zuidwest": {
+        0:  {"factor": 0.8,  "tijd": 0},
+        15: {"factor": 0.86, "tijd": 0.15},
+        45: {"factor": 0.86, "tijd": 0.25},
+        90: {"factor": 0.59, "tijd": 0.35},
+        "default": {"factor": 0.59, "tijd": 25}
+    },
+    "noordoost": {
+        0:  {"factor": 0.8,  "tijd": -0},
+        15: {"factor": 0.72, "tijd": -0.15},
+        45: {"factor": 0.54, "tijd": -0.25},
+        90: {"factor": 0.28, "tijd": -0.35},
+        "default": {"factor": 0.28, "tijd": -70}
+    },
+    "noordwest": {
+        0:  {"factor": 0.8,  "tijd": 0},
+        15: {"factor": 0.72, "tijd": 0.15},
+        45: {"factor": 0.54, "tijd": 0.25},
+        90: {"factor": 0.27, "tijd": 0.35},
+        "default": {"factor": 0.27, "tijd": 70}
+    }
+}
+
+def get_orientatie_data(orientatie, helling):
+    if helling == 0:
+        return 0.8, 0  # overal gelijk bij 0°
+    orientatie = orientatie.lower()
+    waarden = correctiewaarden.get(orientatie, {})
+    data = waarden.get(helling, waarden.get("default", {"factor": 0.5, "tijd": 0}))
+    return data["factor"], data["tijd"]
 
 class KwartierdataProcessor:
     def __init__(self, aantal_jaren:Literal[1,2], breedtegraad:float, lengtegraad:float, hellingshoek1:Literal[0,15,45,90], hellingshoek2:Literal[0,15,45,90], 
                  orientatie1:Literal["oost","west","zuid","noord","zuidoost","zuidwest","noordoost","noordwest"], orientatie2:Literal["oost","west","zuid","noord","zuidoost","zuidwest","noordoost","noordwest"], 
-                 wp1:float, wp2:float, begin_dag:str, zonnedata_pos:bool, rendement:float, data=None):
+                 wp1:float, wp2:float, begin_dag:str, zonnedata_pos:bool, rendement:float, omvormer:float=100000000, data=None):
         self.aantal_jaren = aantal_jaren
         self.breedtegraad = breedtegraad
         self.lengtegraad = lengtegraad
+        self.omvormer = omvormer
         self.hellingshoek1 = hellingshoek1
         self.hellingshoek2 = hellingshoek2
         self.orientatie1 = orientatie1
@@ -31,152 +98,10 @@ class KwartierdataProcessor:
         self.rendement = rendement
         self.data = data
         
-        if orientatie1 == "oost":
-            if self.hellingshoek1 == 0:
-                self.orientatiefactor1 = 0.8
-            elif self.hellingshoek1 == 15:
-                self.orientatiefactor1 = 0.79
-            elif self.hellingshoek1 == 45:
-                self.orientatiefactor1 = 0.72
-            else:
-                self.orientatiefactor1 = 0.46
-        if orientatie1 == "west":
-            if self.hellingshoek1 == 0:
-                self.orientatiefactor1 = 0.8
-            elif self.hellingshoek1 == 15:
-                self.orientatiefactor1 = 0.79
-            elif self.hellingshoek1 == 45:
-                self.orientatiefactor1 = 0.71
-            else:
-                self.orientatiefactor1 = 0.45
-        if orientatie1 == "zuid":
-            if self.hellingshoek1 == 0:
-                self.orientatiefactor1 = 0.8
-            elif self.hellingshoek1 == 15:
-                self.orientatiefactor1 = 0.88
-            elif self.hellingshoek1 == 45:
-                self.orientatiefactor1 = 0.91
-            else:
-                self.orientatiefactor1 = 0.64
-        if orientatie1 == "noord":
-            if self.hellingshoek1 == 0:
-                self.orientatiefactor1 = 0.8
-            elif self.hellingshoek1 == 15:
-                self.orientatiefactor1 = 0.69
-            elif self.hellingshoek1 == 45:
-                self.orientatiefactor1 = 0.44
-            else:
-                self.orientatiefactor1 = 0.18
-        if orientatie1 == "zuidoost":
-            if self.hellingshoek1 == 0:
-                self.orientatiefactor1 = 0.8
-            elif self.hellingshoek1 == 15:
-                self.orientatiefactor1 = 0.86
-            elif self.hellingshoek1 == 45:
-                self.orientatiefactor1 = 0.86
-            else:
-                self.orientatiefactor1 = 0.6
-        if orientatie1 == "zuidwest":
-            if self.hellingshoek1 == 0:
-                self.orientatiefactor1 = 0.8
-            elif self.hellingshoek1 == 15:
-                self.orientatiefactor1 = 0.86
-            elif self.hellingshoek1 == 45:
-                self.orientatiefactor1 = 0.86
-            else:
-                self.orientatiefactor1 = 0.59
-        if orientatie1 == "noordoost":
-            if self.hellingshoek1 == 0:
-                self.orientatiefactor1 = 0.8
-            elif self.hellingshoek1 == 15:
-                self.orientatiefactor1 = 0.72
-            elif self.hellingshoek1 == 45:
-                self.orientatiefactor1 = 0.54
-            else:
-                self.orientatiefactor1 = 0.28
-        if orientatie1 == "noordwest":
-            if self.hellingshoek1 == 0:
-                self.orientatiefactor1 = 0.8
-            elif self.hellingshoek1 == 15:
-                self.orientatiefactor1 = 0.72
-            elif self.hellingshoek1 == 45:
-                self.orientatiefactor1 = 0.54
-            else:
-                self.orientatiefactor1 = 0.27
-            
-        if orientatie2 == "oost":
-            if self.hellingshoek2 == 0:
-                self.orientatiefactor2 = 0.8
-            elif self.hellingshoek2 == 15:
-                self.orientatiefactor2 = 0.79
-            elif self.hellingshoek2 == 45:
-                self.orientatiefactor2 = 0.72
-            else:
-                self.orientatiefactor2 = 0.46
-        if orientatie2 == "west":
-            if self.hellingshoek2 == 0:
-                self.orientatiefactor2 = 0.8
-            elif self.hellingshoek2 == 15:
-                self.orientatiefactor2 = 0.79
-            elif self.hellingshoek2 == 45:
-                self.orientatiefactor2 = 0.71
-            else:
-                self.orientatiefactor2 = 0.45
-        if orientatie2 == "zuid":
-            if self.hellingshoek2 == 0:
-                self.orientatiefactor2 = 0.8
-            elif self.hellingshoek2 == 15:
-                self.orientatiefactor2 = 0.88
-            elif self.hellingshoek2 == 45:
-                self.orientatiefactor2= 0.91
-            else:
-                self.orientatiefactor2 = 0.64
-        if orientatie2 == "noord":
-            if self.hellingshoek2 == 0:
-                self.orientatiefactor2 = 0.8
-            elif self.hellingshoek2 == 15:
-                self.orientatiefactor2 = 0.69
-            elif self.hellingshoek2 == 45:
-                self.orientatiefactor2 = 0.44
-            else:
-                self.orientatiefactor2 = 0.18
-        if orientatie2 == "zuidoost":
-            if self.hellingshoek2 == 0:
-                self.orientatiefactor2 = 0.8
-            elif self.hellingshoek2 == 15:
-                self.orientatiefactor2 = 0.86
-            elif self.hellingshoek2 == 45:
-                self.orientatiefactor2 = 0.86
-            else:
-                self.orientatiefactor2 = 0.6
-        if orientatie2 == "zuidwest":
-            if self.hellingshoek2 == 0:
-                self.orientatiefactor2 = 0.8
-            elif self.hellingshoek2 == 15:
-                self.orientatiefactor2 = 0.86
-            elif self.hellingshoek2 == 45:
-                self.orientatiefactor2 = 0.86
-            else:
-                self.orientatiefactor2 = 0.59
-        if orientatie2 == "noordoost":
-            if self.hellingshoek2 == 0:
-                self.orientatiefactor2 = 0.8
-            elif self.hellingshoek2 == 15:
-                self.orientatiefactor2 = 0.72
-            elif self.hellingshoek2 == 45:
-                self.orientatiefactor2 = 0.54
-            else:
-                self.orientatiefactor2 = 0.28
-        if orientatie2 == "noordwest":
-            if self.hellingshoek2 == 0:
-                self.orientatiefactor2 = 0.8
-            elif self.hellingshoek2 == 15:
-                self.orientatiefactor2 = 0.72
-            elif self.hellingshoek2 == 45:
-                self.orientatiefactor2 = 0.54
-            else:
-                self.orientatiefactor2= 0.27
-
+        self.orientatiefactor1, self.tijdcorrectie1 = get_orientatie_data(self.orientatie1, self.hellingshoek1)
+        self.orientatiefactor2, self.tijdcorrectie2 = get_orientatie_data(self.orientatie2, self.hellingshoek2)
+        """self.tijdscorrectie1 = pd.Timedelta(minutes=self.tijdcorrectie1)
+        self.tijdscorrectie2 = pd.Timedelta(minutes=self.tijdcorrectie2)"""
         self.dagen = pd.date_range(start='2023-01-01', periods=365 * aantal_jaren, freq='D')
         
 
@@ -190,7 +115,6 @@ class KwartierdataProcessor:
         self.Kwartieren = np.arange(0,24,0.25)
         self.df = pd.DataFrame(index=self.dagen, columns=self.Kwartieren)
         
-    @st.cache_data
     def bereken_kwartieropbrengst(_self):
         # Bereken de opbrengst per kwartier
         Opbrengsten1 = []
@@ -202,32 +126,43 @@ class KwartierdataProcessor:
             dag_opbrengst2 = 0   
             for kwartier in _self.Kwartieren:
                 # Hier komt de logica voor het berekenen van de opbrengst per kwartier
-                h = 15*((kwartier-1)+_self.lengtegraad/15+_self.equation_of_time[dag]/60-12)
-                  
-                cos_Z = np.sin(np.radians(_self.breedtegraad)) * np.sin(np.radians(_self.declinatie_vd_zon[dag])) + np.cos(np.radians(_self.breedtegraad)) * np.cos(np.radians(_self.declinatie_vd_zon[dag])) * np.cos(np.radians(h))
-                zonnezenithoek = np.degrees(np.arccos(cos_Z))
+                h1 = 15*((kwartier-1+_self.tijdcorrectie1)+_self.lengtegraad/15+_self.equation_of_time[dag]/60-12)
+                h2 = 15*((kwartier-1+_self.tijdcorrectie2)+_self.lengtegraad/15+_self.equation_of_time[dag]/60-12)  
+                cos_Z1 = np.sin(np.radians(_self.breedtegraad)) * np.sin(np.radians(_self.declinatie_vd_zon[dag])) + np.cos(np.radians(_self.breedtegraad)) * np.cos(np.radians(_self.declinatie_vd_zon[dag])) * np.cos(np.radians(h1))
+                cos_Z2 = np.sin(np.radians(_self.breedtegraad)) * np.sin(np.radians(_self.declinatie_vd_zon[dag])) + np.cos(np.radians(_self.breedtegraad)) * np.cos(np.radians(_self.declinatie_vd_zon[dag])) * np.cos(np.radians(h2))
+                zonnezenithoek1 = np.degrees(np.arccos(cos_Z1))
+                zonnezenithoek2 = np.degrees(np.arccos(cos_Z2))
                 
-                if zonnezenithoek < 90:
-                    intensiteitsfactor = 1361 * np.cos(np.radians(zonnezenithoek))*_self.T[dag] 
-                    if intensiteitsfactor > 75:
-                        Pos_intensiteit = intensiteitsfactor ** 1.8
-                        factor1 = Pos_intensiteit/1020/26*_self.orientatiefactor1*0.95
-                        factor2 = Pos_intensiteit/1020/26*_self.orientatiefactor2*0.95
+                if zonnezenithoek1 < 90:
+                    intensiteitsfactor1 = 1361 * np.cos(np.radians(zonnezenithoek1))*_self.T[dag] 
+                    if intensiteitsfactor1 > 75:
+                        Pos_intensiteit1 = intensiteitsfactor1 ** 1.8
+                        factor1 = Pos_intensiteit1/1020/26*_self.orientatiefactor1*0.95
                         opbrengst1 = _self.wp1 * factor1 /4000
-                        opbrengst2 = _self.wp2 * factor2 / 4000
                         Opbrengsten1.append(float(opbrengst1))
-                        Opbrengsten2.append(float(opbrengst2))
                     else:
                         opbrengst1 = 0
-                        opbrengst2 = 0  
                         Opbrengsten1.append(0)
-                        Opbrengsten2.append(0)
-                        
                 else:
                     opbrengst1 = 0
-                    opbrengst2 = 0                    
                     Opbrengsten1.append(0)
-                    Opbrengsten2.append(0)
+
+
+                if zonnezenithoek2 < 90:
+                    intensiteitsfactor2 = 1361 * np.cos(np.radians(zonnezenithoek2))*_self.T[dag] 
+                    if intensiteitsfactor2 > 75:
+                        Pos_intensiteit2 = intensiteitsfactor2 ** 1.8
+                        factor2 = Pos_intensiteit2/1020/26*_self.orientatiefactor2*0.95
+                        opbrengst2 = _self.wp2 * factor2 / 4000
+                        Opbrengsten2.append(float(opbrengst2))
+                    else:
+                        opbrengst2 = 0
+                        Opbrengsten2.append(0)
+                else:
+                    opbrengst2 = 0  
+                    Opbrengsten2.append(0)  
+                
+
                 dag_opbrengst1 = dag_opbrengst1+ opbrengst1
                 dag_opbrengst2 = dag_opbrengst2+ opbrengst2
             Opbrengst1_per_dag.append(dag_opbrengst1)
@@ -235,19 +170,22 @@ class KwartierdataProcessor:
 
                             
         # Genereer datetime index per 15 minuten in 2024 (voorbeeldjaar)
-        timestamps = pd.date_range(start="2023-01-01", end="2023-12-31 23:45", freq="15min")                    
+        timestamps = pd.date_range(start="2023-01-01 00:00", end="2023-12-31 23:45", freq="15min")
+        # Controleer of de lengte van de opbrengsten overeenkomt met de timestamps
+
+                    
         print(sum(Opbrengsten1), sum(Opbrengsten2))  # Totale opbrengst voor controle
         # Stop in DataFrame
         Opbrengsten1 = pd.Series(Opbrengsten1, index=timestamps)
         Opbrengsten2 = pd.Series(Opbrengsten2, index=timestamps)
         Opbrengsten1 = Opbrengsten1*_self.zonnedata_pos/1000
-        Opbrengsten2 = Opbrengsten2*_self.zonnedata_pos/1000
-
+        Opbrengsten2 = Opbrengsten2*_self.zonnedata_pos/1000            
         Opbrengsten_samen = Opbrengsten1 + Opbrengsten2
         Opbrengsten_samen.name = "Opbrengst"
         Opbrengsten_samen.index = timestamps
         Opbrengsten_samen.index.name = "Tijdstip"
-        st.dataframe(Opbrengsten_samen)
+        for index in range(len(Opbrengsten_samen)): 
+            Opbrengsten_samen[index] = min(Opbrengsten_samen[index], _self.omvormer)
         return Opbrengsten_samen   
 
 def kwartierdata_naar_dagdata(df:pd.DataFrame, tijdstip_col=0, waarde_col=1):
@@ -466,7 +404,7 @@ def maak_heatmap_verbruik(df, verbruik_col:str="Verbruik", limiet:int=40000):
     df.index = pd.to_datetime(df.index)
 
     # Bereken % benutting per kwartier
-    df["%_benut"] = df[verbruik_col] / (limiet/96) * 100
+    df["%_benut"] = df / (limiet/96) * 100
 
     # Groepeer per dag: gemiddelde % benutting per dag
     dag_data = df["%_benut"].resample("D").mean()
@@ -515,13 +453,14 @@ def maak_heatmap_verbruik(df, verbruik_col:str="Verbruik", limiet:int=40000):
     # Bepaal dag met hoogste benutting
     max_benutting = dag_data.max()
     max_dag = dag_data.idxmax()  # datetime van die dag
-
+    #plot heatmap in python
+    plt.show
     # Print met Streamlit
     st.pyplot(fig)
     st.write(f"📅 **Dag met hoogste afname:** {max_dag.date()} met gemiddeld {max_benutting:.2f}% benutting")
     
 
-"""test = KwartierdataProcessor(
+test = KwartierdataProcessor(
     aantal_jaren=1,
     breedtegraad=52.13,
     lengtegraad=6.54,
@@ -531,13 +470,13 @@ def maak_heatmap_verbruik(df, verbruik_col:str="Verbruik", limiet:int=40000):
     orientatie2="west",
     wp1=450,
     wp2=300,
-    begin_dag = '2024-01-01',
-    dag_grafiek='2024-01-01',
-    zonnedata_pos=False,
-    rendement=0.95
+    begin_dag = '2023-01-01',
+    zonnedata_pos=True,
+    rendement=0.95,
+    omvormer=3,
 ).bereken_kwartieropbrengst()
-#print(test["2023-01-01 12:15":"2023-01-01 12:30"])
-maak_heatmap_verbruik(test, verbruik_col="opbrengst1_W", limiet=40000)"""
+print(test["2023-06-06 00:15":"2023-06-06 23:30"])
+#maak_heatmap_verbruik(test, verbruik_col="Opbrengst", limiet=40000)
 
 """"
 teruglever_limiet = -2 #kWh per dag
