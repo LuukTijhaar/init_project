@@ -51,9 +51,12 @@ if check_password():
     st.title("Welkom bij mijn beveiligde app 🚀")
     st.write("Je hebt het juiste wachtwoord ingevoerd!")
 
+BASE_DIR = os.path.dirname(__file__)
 
+# pad naar het logo
+logo_path = os.path.join(BASE_DIR, "LO-Bind-FC-RGB.png")
 
-logo = mpimg.imread("C:\\Users\\LuukTijhaar(bind)\\vscode\\init_project\\src\\init_project\\LO-Bind-FC-RGB.png")
+logo = mpimg.imread(logo_path)
 
 st.markdown("""
 <style>
