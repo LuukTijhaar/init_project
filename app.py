@@ -78,7 +78,7 @@ st.markdown('<div class="section-header">1. Upload je kwartierdata</div>', unsaf
 
 """@st.cache_resource
 def laad_dataframes(file, index_col=0, parse_dates=True): 
-    """Laad excel bestanden en retourneer de dataframes."""
+    
     if file is not None: 
         df = pd.read_excel(file, index_col=index_col, parse_dates=parse_dates)
         return df 
