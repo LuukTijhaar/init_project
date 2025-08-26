@@ -6,10 +6,52 @@ import time
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 import io 
-
-
+import os 
+from dotenv import load_dotenv
 
 st.set_page_config(page_title="Energie Analyse (Nieuw)", layout="wide")
+
+load_dotenv()
+PASSWORD = os.getenv("PASSWORD")
+MAX_ATTEMPTS = 3
+
+# Zorg dat state bestaat
+if "attempts" not in st.session_state:
+    st.session_state["attempts"] = 0
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+
+def check_password():
+    # Als teveel pogingen → blokkeren
+    if st.session_state["attempts"] >= MAX_ATTEMPTS:
+        st.error("Te veel foutieve pogingen. Probeer later opnieuw.")
+        return False
+
+    def password_entered():
+        if st.session_state["password"] == PASSWORD:
+            st.session_state["authenticated"] = True
+            st.session_state["attempts"] = 0  # reset bij succes
+            del st.session_state["password"]
+        else:
+            st.session_state["authenticated"] = False
+            st.session_state["attempts"] += 1
+            del st.session_state["password"]
+
+    # Laat input zien zolang nog niet ingelogd
+    if not st.session_state["authenticated"]:
+        st.text_input("Voer wachtwoord in", type="password", key="password", on_change=password_entered)
+        if st.session_state["attempts"] > 0 and st.session_state["attempts"] < MAX_ATTEMPTS:
+            st.warning(f"Verkeerd wachtwoord. Poging {st.session_state['attempts']} van {MAX_ATTEMPTS}.")
+        return False
+    return True
+
+
+# --- App content ---
+if check_password():
+    st.title("Welkom bij mijn beveiligde app 🚀")
+    st.write("Je hebt het juiste wachtwoord ingevoerd!")
+
+
 
 logo = mpimg.imread("C:\\Users\\LuukTijhaar(bind)\\vscode\\init_project\\src\\init_project\\LO-Bind-FC-RGB.png")
 
