@@ -5,3 +5,4 @@ python-dotenv
 pvlib
 openpyxl
 seaborn
+xlsxwriter
