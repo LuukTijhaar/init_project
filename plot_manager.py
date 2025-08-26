@@ -58,7 +58,12 @@ class PlotManager:
             accu = _accu_vermogen
         else: 
             accu = 0
-        logo = mpimg.imread("C:\\Users\\LuukTijhaar(bind)\\vscode\\init_project\\src\\init_project\\LO-Bind-FC-RGB.png")
+        BASE_DIR = os.path.dirname(__file__)
+
+        # pad naar het logo
+        logo_path = os.path.join(BASE_DIR, "LO-Bind-FC-RGB.png")
+
+        logo = mpimg.imread(logo_path)
         min_len = min(len(_verbruik), len(_opbrengst))
         verbruik = _verbruik.iloc[:min_len]
         opbrengst = _opbrengst.iloc[:min_len]
@@ -196,7 +201,12 @@ class PlotManager:
         opbrengst = _opbrengst
         verbruik = _verbruik
         titel = _titel
-        logo = mpimg.imread("C:\\Users\\LuukTijhaar(bind)\\vscode\\init_project\\src\\init_project\\LO-Bind-FC-RGB.png")
+        BASE_DIR = os.path.dirname(__file__)
+
+        # pad naar het logo
+        logo_path = os.path.join(BASE_DIR, "LO-Bind-FC-RGB.png")
+
+        logo = mpimg.imread(logo_path)
         max_afname = _max_afname
         max_teruglevering = _max_teruglevering
         min_len = min(len(opbrengst), len(verbruik))
