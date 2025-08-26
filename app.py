@@ -39,6 +39,7 @@ def check_password():
 
     # Laat input zien zolang nog niet ingelogd
     if not st.session_state["authenticated"]:
+        st.write("Voer het wachtwoord in om toegang te krijgen:")
         st.text_input("Voer wachtwoord in", type="password", key="password", on_change=password_entered)
         if st.session_state["attempts"] > 0 and st.session_state["attempts"] < MAX_ATTEMPTS:
             st.warning(f"Verkeerd wachtwoord. Poging {st.session_state['attempts']} van {MAX_ATTEMPTS}.")
