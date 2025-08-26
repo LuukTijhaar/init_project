@@ -8,7 +8,15 @@ class PlotManager:
     @st.cache_data
     def plot_belastingduurkromme(_self, _verbruiken: list[float]):
         punten = PlotManager._bereken_belastingduurkromme(_verbruiken)
-        logo = mpimg.imread("C:\\Users\\LuukTijhaar(bind)\\vscode\\init_project\\src\\init_project\\LO-Bind-FC-RGB.png")
+        BASE_DIR = os.path.dirname(__file__)
+
+        # pad naar het logo
+        logo_path = os.path.join(BASE_DIR, "LO-Bind-FC-RGB.png")
+
+        logo = mpimg.imread(logo_path)
+        
+        
+        
         if not punten:
             st.warning("Geen data om te plotten.")
             return
