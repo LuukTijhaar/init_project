@@ -1,8 +1,5 @@
 streamlit
 pandas 
 matplotlib
-io
-os
-dotenv
+python-dotenv
 pvlib
-copy
