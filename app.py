@@ -76,13 +76,7 @@ with st.sidebar:
     lengtegraad = st.number_input("Lengtegraad", value=6.54)   
 st.markdown('<div class="section-header">1. Upload je kwartierdata</div>', unsafe_allow_html=True)
 
-"""@st.cache_resource
-def laad_dataframes(file, index_col=0, parse_dates=True): 
-    
-    if file is not None: 
-        df = pd.read_excel(file, index_col=index_col, parse_dates=parse_dates)
-        return df 
-    return None"""
+
 @st.cache_resource
 def laad_dataframes(file, index_col=0, parse_dates=True):
     """
