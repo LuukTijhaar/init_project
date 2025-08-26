@@ -76,13 +76,48 @@ with st.sidebar:
     lengtegraad = st.number_input("Lengtegraad", value=6.54)   
 st.markdown('<div class="section-header">1. Upload je kwartierdata</div>', unsafe_allow_html=True)
 
-@st.cache_resource
+"""@st.cache_resource
 def laad_dataframes(file, index_col=0, parse_dates=True): 
     """Laad excel bestanden en retourneer de dataframes."""
     if file is not None: 
         df = pd.read_excel(file, index_col=index_col, parse_dates=parse_dates)
         return df 
-    return None
+    return None"""
+@st.cache_resource
+def laad_dataframes(file, index_col=0, parse_dates=True):
+    """
+    Laad een Excel-bestand (xlsx of xls) en retourneer een DataFrame.
+    Ondersteunt Streamlit UploadedFile en gewone paden.
+    Vangt fouten bij corrupte stijlen op.
+    """
+    if file is None:
+        return None
+
+    # Probeer .xlsx eerst met openpyxl
+    try:
+        df = pd.read_excel(
+            file,
+            index_col=index_col,
+            parse_dates=parse_dates,
+            engine='openpyxl',
+            engine_kwargs={'data_only': True}  # negeer formules/stijlen
+        )
+        return df
+    except Exception as e_xlsx:
+        st.warning(f"Kon .xlsx niet lezen: {e_xlsx}")
+
+        # Probeer .xls via xlrd
+        try:
+            df = pd.read_excel(
+                file,
+                index_col=index_col,
+                parse_dates=parse_dates,
+                engine='xlrd'
+            )
+            return df
+        except Exception as e_xls:
+            st.error(f"Kon bestand niet laden als Excel: {e_xls}")
+            return None
 
 uploaded_verbruik = st.file_uploader("Upload verbruik kwartierdata (excel, index=datetime)", type=["xlsx"], key="verbruik")
 
