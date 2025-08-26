@@ -133,7 +133,7 @@ else:
 df_verbruik = None
 df_opbrengst = None
 
-if uploaded_verbruik and uploaded_opbrengst:
+if uploaded_verbruik and uploaded_opbrengst and check_password():
     if uploaded_opbrengst == "Processor":
         start = time.time()
         with st.spinner("Berekenen kwartierdata..."):
