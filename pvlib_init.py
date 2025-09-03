@@ -23,7 +23,7 @@ def get_parameters(_breedtegraad=52.2215, _lengtegraad=6.8937, _tijdzone='Europe
     print(location)
     return location, module, inverter, temperature_parameters
 
-@st.cache_data
+
 def Initialize_Systeem(_location, _module, _inverter, _temperature_parameters, _hellingshoek=45, _azimuth=180, _panelen_per_reeks=1, _reeksen_per_omvormer=1,_start_date='2021-01-01', _end_date='2021-12-31'):
     
         

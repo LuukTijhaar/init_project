@@ -1,7 +1,9 @@
 import streamlit as st
 import pandas as pd
 from plot_manager import PlotManager
+from plot_weektrends import plot_weektrends, plot_weektrends_summary, plot_weektrends_per_quartile_stats, plot_accu_week_simulatie, plot_accu_week_simulatie_select
 from pvlib_init import Initialize_Systeem, get_parameters
+from ml_clustering import cluster_typical_profiles
 import time 
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
@@ -143,7 +145,7 @@ if uploaded_verbruik and uploaded_opbrengst:
                 _start_date=begin_datum, 
                 _end_date=begin_datum + pd.DateOffset(years=1))
             
-            st.write(df_opbrengst1.results.ac['2021-01-01 00:15:00+01:00':'2021-01-02 00:15:00+01:00'])
+            
             
             df_opbrengst2 = Initialize_Systeem(
                 _location = location, 
@@ -159,14 +161,15 @@ if uploaded_verbruik and uploaded_opbrengst:
             
             #st.write(df_opbrengst2.results.ac.head())
             df_opbrengst = df_opbrengst1.results.ac*Reeksen1 + df_opbrengst2.results.ac*Reeksen2
+            
             #st.write(df_opbrengst.head())
             #plt.clf()
             #df_opbrengst.plot(figsize=(16, 9), title='AC Power Output')
 
-            st.write(f"opbrengst over een jaar totaal: {df_opbrengst.sum()/4000}, zijde 1: {df_opbrengst1.results.ac.sum()/4000}, zijde 2: {df_opbrengst2.results.ac.sum()/4000}")
+            st.write(f"opbrengst over een jaar totaal: {df_opbrengst.sum()/4} kWh, zijde 1: {df_opbrengst1.results.ac.sum()/4*Reeksen1} kWh, zijde 2: {df_opbrengst2.results.ac.sum()/4*Reeksen2} kWh")
             
             #st.pyplot(plt.gcf())  # Show the plot in Streamlit
-            "df_opbrengst = bereken_opbrengst(aantal_jaren=aantal_jaar, breedtegraad=breedtegraad, lengtegraad=lengtegraad, hellingshoek1=Hellingshoek1, hellingshoek2=Hellingshoek2, orientatie1=orientatie1, orientatie2=orientatie2, wp1=WP1, wp2=WP2,begin_dag=begin_datum,zonnedata_pos=zonnedata_pos_neg,rendement=rendement).bereken_kwartieropbrengst()"
+            
         st.write("Duur:", time.time() - start)
     else: 
         df_opbrengst = laad_dataframes(uploaded_opbrengst, index_col=0, parse_dates=True)
@@ -183,7 +186,7 @@ if uploaded_verbruik and uploaded_opbrengst:
     data_verbruik = st.text_input("Kolom verbruiksdata:", value="Verbruik")
     
     data_verbruik = df_verbruik[data_verbruik]
-    data_verbruik = data_verbruik.iloc[:35040]*0.25  # Voorbeeld: neem de eerste 35.178 rijen en naar kW
+    data_verbruik = data_verbruik.iloc[:35040]*4  # Voorbeeld: neem de eerste 35.178 rijen en naar kW
     data_verbruik.index = pd.to_datetime(df_verbruik.iloc[:35040, 0])
     if uploaded_opbrengst != "Processor":
         data_opbrengst = st.text_input("Kolom opbrengstdata:", value="Verbruik")
@@ -199,12 +202,14 @@ if uploaded_verbruik and uploaded_opbrengst:
     st.markdown('<div class="section-header">3. Analyse & Visualisatie</div>', unsafe_allow_html=True)
     plotter = PlotManager()
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "Belastingduurkromme", 
         "Energiebalans dag", 
         "Dagbalans jaar", 
         "Opbrengst vs Verbruik",
-        "Max kwartierverbruik heatmap"
+        "Max kwartierverbruik heatmap",
+        "Weekoverzicht",
+        "Accu module"
     ])
 
     with tab1:
@@ -239,6 +244,9 @@ if uploaded_verbruik and uploaded_opbrengst:
             plotter.plot_energiebalans_dag(data_verbruik[mask_v], data_opbrengst[mask_o], max_afname, max_teruglevering, _positief=zonnedata_pos_neg, _toon_verbruik=toon_verbruik, _toon_opbrengst=toon_opbrengst, _toon_saldo=toon_saldo, _toon_saldo_beperkt=toon_saldo_beperkt, _toon_limieten=toon_limieten, _toon_limiet_overschrijdingen=toon_limiet_overschrijdingen)
         else:
             st.info("Geen data voor deze dag.")
+
+        clusters = st.number_input("Aantal clusters voor verbruiksprofielen", min_value=2, max_value=10, value=4, key="aantal_clusters")
+        cluster_typical_profiles(data_verbruik, n_clusters=clusters, use_weekend=True)
 
     with tab3:
         st.markdown("#### Dagbalans over gehele periode")
@@ -364,10 +372,26 @@ if uploaded_verbruik and uploaded_opbrengst:
             max_dag = perc_per_dag.idxmax()
             st.pyplot(fig)
             st.write(f"📅 **Dag met hoogste piek:** {max_dag.date()} met {max_perc:.2f}% van max afname")
-            st.write(f"🚨 **Aantal dagen limiet overschreden:** {overschrijdingen} van {totaal_dagen} dagen ({overschrijdingen/totaal_dagen:.1%})")
+            st.write(f"🚨 **Aantal dagen limiet overschrijden:** {overschrijdingen} van {totaal_dagen} dagen ({overschrijdingen/totaal_dagen:.1%})")
 
         plot_max_dagpiek_heatmap(data_verbruik, data_opbrengst, max_afname)
 
+    with tab6:
+        st.markdown("#### Weekoverzicht")
+        plot_weektrends(data_verbruik, title="Weektrends verbruik kwartierdata")
+        
+        plot_weektrends_summary(data_verbruik, title="Gemiddelde, max en min week verbruik (kwartierdata)")
+        plot_weektrends_per_quartile_stats(data_verbruik, title="Gemiddelde, max en min per kwartier van de week")
+
+    with tab7:
+        st.markdown("#### Accu module")
+        capaciteit = st.number_input("Accu capaciteit (kWh)", min_value=1.0, value=10.0)
+        strategie = st.selectbox("Gebruik", options=["Piek", "Gedurende dag"], index=1)
+        plot_accu_week_simulatie(data_verbruik, data_opbrengst, capaciteit, max_afname, max_teruglevering)
+        plot_accu_week_simulatie_select(data_verbruik, data_opbrengst, capaciteit, max_afname, max_teruglevering)
+        
+        
+        
 
     df = pd.DataFrame({
         "Verbruik (kW)": data_verbruik,
