@@ -166,18 +166,30 @@ df_verbruik = None
 df_opbrengst = None
 
 def dedup_quarterly_series(s: pd.Series, how: str = "mean") -> pd.Series:
-    # 1) datetime-index maken en NaT weg
+    # 1) maak datetime-index en filter NaT
     idx = pd.to_datetime(s.index, errors="coerce")
-    s = pd.Series(pd.to_numeric(s.values, errors="coerce"), index=idx, name=s.name)
+    s = pd.Series(pd.to_numeric(getattr(s, "values", s), errors="coerce"), index=idx, name=getattr(s, "name", None))
     s = s[~s.index.isna()]
-    # 2) op exact 15-minuten bakken
-    s.index = s.index.floor("15min")
-    # 3) dubbelen samenvoegen (DST/dubbele rijen)
+
+    # 2) als tz-aware → naar UTC en dan tz-naive (geen ambiguïteit meer)
+    if isinstance(s.index, pd.DatetimeIndex) and s.index.tz is not None:
+        s.index = s.index.tz_convert("UTC").tz_localize(None)
+
+    # 3) floor naar 15 minuten ZONDER pandas .floor() (voorkomt tz-gedoe)
+    #    15 min = 900_000_000_000 nanoseconden
+    ns = s.index.asi8  # int64 nanoseconds
+    step = 900_000_000_000
+    floored = (ns // step) * step
+    s.index = pd.to_datetime(floored)
+
+    # 4) dubbele timestamps samenvoegen en sorteren
     if how == "sum":
         s = s.groupby(s.index).sum()
     else:
         s = s.groupby(s.index).mean()
+
     return s.sort_index().astype("float32")
+
 
 def align_to_common_15min_grid(v: pd.Series, o: pd.Series) -> tuple[pd.Series, pd.Series]:
     v = dedup_quarterly_series(v, how="mean")  # verbruik evt. "sum" als je dat beter vindt
