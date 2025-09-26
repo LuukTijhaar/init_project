@@ -236,15 +236,25 @@ if uploaded_verbruik and uploaded_opbrengst:
     ).astype("float32") * 4.0  # jouw bestaande *4 logica behouden
 
     # Opbrengst: afhankelijk van bron ("Processor" of upload)
-    if data_type == "Berekenen":  # = je had uploaded_opbrengst == "Processor"
-        data_opbrengst = pd.to_numeric(
-            df_opbrengst.iloc[:len(common_index)], errors="coerce"
-        ).astype("float32")
-    else:
-        col_opbrengst = st.text_input("Kolom opbrengstdata:", value=df_opbrengst.columns[0])
-        data_opbrengst = pd.to_numeric(
-            df_opbrengst[col_opbrengst].iloc[:len(common_index)], errors="coerce"
-        ).astype("float32")
+    N = 35040  # max 1 jaar kwartierdata
+
+    if data_type == "Berekenen":  # Processor
+        # df_opbrengst kan een DataFrame of Series zijn
+        if isinstance(df_opbrengst, pd.DataFrame):
+            raw = df_opbrengst.iloc[:, 0]
+        else:
+            raw = df_opbrengst
+        data_opbrengst = pd.to_numeric(raw.iloc[:N], errors="coerce").astype("float32")
+
+    else:  # Upload
+        default_col = df_opbrengst.columns[0] if isinstance(df_opbrengst, pd.DataFrame) else None
+        col_opbrengst = st.text_input("Kolom opbrengstdata:", value=default_col or "Opbrengst")
+        if isinstance(df_opbrengst, pd.DataFrame):
+            raw = df_opbrengst[col_opbrengst]
+        else:
+            raw = df_opbrengst
+        data_opbrengst = pd.to_numeric(raw.iloc[:N], errors="coerce").astype("float32")
+
     # Maak 1 gemeenschappelijke datetime-index (zonder extra DataFrame-kopie)
     def tz_normalize_to_utc(s: pd.Series, tz="Europe/Amsterdam") -> pd.Series:
         idx = pd.to_datetime(s.index, errors="coerce")
