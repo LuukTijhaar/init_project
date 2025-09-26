@@ -44,7 +44,7 @@ def mem_optimize_df(df: pd.DataFrame) -> pd.DataFrame:
             df[c] = df[c].astype("category")
     return df
 
-@st.chache_data(show_spinner=False, ttl=3600, max_entries=6)
+@st.cache_data(show_spinner=False, ttl=3600, max_entries=6)
 def read_excel_smart(file, index_col=0, parse_dates=True) -> pd.DataFrame: 
     df = pd.read_excel(file, index_col=index_col, parse_dates=parse_dates,
         engine="openpyxl", engine_kwargs={"data_only": True})
