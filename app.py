@@ -56,6 +56,9 @@ def as_float32_series(s: pd.Series) -> pd.Series:
     s = pd.Series(pd.to_numeric(s, errors="coerce"), index=s.index, name=s.name)
     return s.astype("float32")
 
+
+BASE_DIR = os.path.dirname(__file__)
+
 @st.cache_data 
 def load_logo_bytes(path: str) -> bytes:
     with open(path, "rb") as f: 
@@ -64,7 +67,6 @@ def load_logo_bytes(path: str) -> bytes:
 logo = load_logo_bytes("src/init_project/LO-Bind-FC-RGB.png")
 
 
-BASE_DIR = os.path.dirname(__file__)
 
 
 
