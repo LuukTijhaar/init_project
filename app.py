@@ -235,6 +235,16 @@ if uploaded_verbruik and uploaded_opbrengst:
         df_verbruik[col_verbruik].iloc[:N], errors="coerce"
     ).astype("float32") * 4.0  # jouw bestaande *4 logica behouden
 
+    # Opbrengst: afhankelijk van bron ("Processor" of upload)
+    if data_type == "Berekenen":  # = je had uploaded_opbrengst == "Processor"
+        data_opbrengst = pd.to_numeric(
+            df_opbrengst.iloc[:len(common_index)], errors="coerce"
+        ).astype("float32")
+    else:
+        col_opbrengst = st.text_input("Kolom opbrengstdata:", value=df_opbrengst.columns[0])
+        data_opbrengst = pd.to_numeric(
+            df_opbrengst[col_opbrengst].iloc[:len(common_index)], errors="coerce"
+        ).astype("float32")
     # Maak 1 gemeenschappelijke datetime-index (zonder extra DataFrame-kopie)
     def tz_normalize_to_utc(s: pd.Series, tz="Europe/Amsterdam") -> pd.Series:
         idx = pd.to_datetime(s.index, errors="coerce")
@@ -257,20 +267,7 @@ if uploaded_verbruik and uploaded_opbrengst:
     data_opbrengst = aligned["opbrengst"]
 
 
-
-    # Opbrengst: afhankelijk van bron ("Processor" of upload)
-    if data_type == "Berekenen":  # = je had uploaded_opbrengst == "Processor"
-        data_opbrengst = pd.to_numeric(
-            df_opbrengst.iloc[:len(common_index)], errors="coerce"
-        ).astype("float32")
-    else:
-        col_opbrengst = st.text_input("Kolom opbrengstdata:", value=df_opbrengst.columns[0])
-        data_opbrengst = pd.to_numeric(
-            df_opbrengst[col_opbrengst].iloc[:len(common_index)], errors="coerce"
-        ).astype("float32")
-
-    # Indexen uitlijnen zonder vullen (voorkomt extra kopieën/length mismatch)
-    data_opbrengst = data_opbrengst.reindex(common_index)
+    
 
     # (optioneel) klein voorbeeld tonen i.p.v. hele DF om RAM te sparen
     st.caption("Voorbeeld verbruik (eerste 500 rijen)")
