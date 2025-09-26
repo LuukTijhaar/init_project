@@ -7,3 +7,5 @@ openpyxl
 seaborn
 xlsxwriter
 scikit-learn
+psutil
+tracemalloc
