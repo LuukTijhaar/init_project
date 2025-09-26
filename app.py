@@ -57,17 +57,24 @@ def as_float32_series(s: pd.Series) -> pd.Series:
     return s.astype("float32")
 
 
-BASE_DIR = os.path.dirname(__file__)
+from pathlib import Path
 
-@st.cache_data 
-def load_logo_bytes(path: str) -> bytes:
-    with open(path, "rb") as f: 
-        return f.read()
+BASE_DIR = Path(__file__).parent
+LOGO_PATH = BASE_DIR / "LO-Bind-FC-RGB.png"
 
-logo = load_logo_bytes("src/init_project/LO-Bind-FC-RGB.png")
+@st.cache_data(show_spinner=False)
+def load_logo_bytes(path: str | Path) -> bytes | None:
+    try:
+        with open(path, "rb") as f:
+            return f.read()
+    except FileNotFoundError:
+        return None
 
-
-
+logo_bytes = load_logo_bytes(LOGO_PATH)
+if logo_bytes:
+    st.image(logo_bytes, width=140)
+else:
+    st.caption("Logo niet gevonden (LO-Bind-FC-RGB.png).")
 
 
 PV_MODULETYPES = {
