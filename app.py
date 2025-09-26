@@ -165,6 +165,36 @@ else:
 df_verbruik = None
 df_opbrengst = None
 
+def dedup_quarterly_series(s: pd.Series, how: str = "mean") -> pd.Series:
+    # 1) datetime-index maken en NaT weg
+    idx = pd.to_datetime(s.index, errors="coerce")
+    s = pd.Series(pd.to_numeric(s.values, errors="coerce"), index=idx, name=s.name)
+    s = s[~s.index.isna()]
+    # 2) op exact 15-minuten bakken
+    s.index = s.index.floor("15min")
+    # 3) dubbelen samenvoegen (DST/dubbele rijen)
+    if how == "sum":
+        s = s.groupby(s.index).sum()
+    else:
+        s = s.groupby(s.index).mean()
+    return s.sort_index().astype("float32")
+
+def align_to_common_15min_grid(v: pd.Series, o: pd.Series) -> tuple[pd.Series, pd.Series]:
+    v = dedup_quarterly_series(v, how="mean")  # verbruik evt. "sum" als je dat beter vindt
+    o = dedup_quarterly_series(o, how="mean")
+    # gemeenschappelijke periode
+    start = max(v.index.min(), o.index.min())
+    end   = min(v.index.max(), o.index.max())
+    if pd.isna(start) or pd.isna(end) or start >= end:
+        aligned = pd.DataFrame({"v": v, "o": o}).dropna()
+        return aligned["v"].astype("float32"), aligned["o"].astype("float32")
+    grid = pd.date_range(start=start, end=end, freq="15min")
+    v = v.reindex(grid)
+    o = o.reindex(grid)
+    aligned = pd.DataFrame({"v": v, "o": o}).dropna()
+    return aligned["v"].astype("float32"), aligned["o"].astype("float32")
+
+
 if uploaded_verbruik and uploaded_opbrengst:
     if uploaded_opbrengst == "Processor":
         start = time.time()
@@ -224,66 +254,38 @@ if uploaded_verbruik and uploaded_opbrengst:
 
     st.markdown('<div class="section-header">2. Selecteer kolommen verbruik en opbrengst</div>', unsafe_allow_html=True)
 
-    # We werken met maximaal 1 jaar kwartierdata
-    N = 35040
-
-    # Kies verbruiks-kolom (standaard "Verbruik")
-    col_verbruik = st.text_input("Kolom verbruiksdata:", value="Verbruik")
-
-    # Verbruik: compact en zonder extra kopieën
-    data_verbruik = pd.to_numeric(
-        df_verbruik[col_verbruik].iloc[:N], errors="coerce"
-    ).astype("float32") * 4.0  # jouw bestaande *4 logica behouden
-
-    # Opbrengst: afhankelijk van bron ("Processor" of upload)
     N = 35040  # max 1 jaar kwartierdata
 
-    if data_type == "Berekenen":  # Processor
-        # df_opbrengst kan een DataFrame of Series zijn
-        if isinstance(df_opbrengst, pd.DataFrame):
-            raw = df_opbrengst.iloc[:, 0]
-        else:
-            raw = df_opbrengst
-        data_opbrengst = pd.to_numeric(raw.iloc[:N], errors="coerce").astype("float32")
+    # --- Verbruik ---
+    col_verbruik = st.text_input("Kolom verbruiksdata:", value="Verbruik")
+    s_v = pd.to_numeric(df_verbruik[col_verbruik].iloc[:N], errors="coerce").astype("float32") * 4.0  # behoud jouw *4
 
-    else:  # Upload
+    # --- Opbrengst ---
+    if data_type == "Berekenen":  # df_opbrengst komt uit je PV-processor
+        if isinstance(df_opbrengst, pd.DataFrame):
+            raw_o = df_opbrengst.iloc[:, 0]
+        else:
+            raw_o = df_opbrengst
+        s_o = pd.to_numeric(raw_o.iloc[:N], errors="coerce").astype("float32")
+    else:  # upload
         default_col = df_opbrengst.columns[0] if isinstance(df_opbrengst, pd.DataFrame) else None
         col_opbrengst = st.text_input("Kolom opbrengstdata:", value=default_col or "Opbrengst")
         if isinstance(df_opbrengst, pd.DataFrame):
-            raw = df_opbrengst[col_opbrengst]
+            raw_o = df_opbrengst[col_opbrengst]
         else:
-            raw = df_opbrengst
-        data_opbrengst = pd.to_numeric(raw.iloc[:N], errors="coerce").astype("float32")
+            raw_o = df_opbrengst
+        s_o = pd.to_numeric(raw_o.iloc[:N], errors="coerce").astype("float32")
 
-    # Maak 1 gemeenschappelijke datetime-index (zonder extra DataFrame-kopie)
-    def tz_normalize_to_utc(s: pd.Series, tz="Europe/Amsterdam") -> pd.Series:
-        idx = pd.to_datetime(s.index, errors="coerce")
-        s = s[~idx.isna()]
-        idx = idx.tz_localize(tz, ambiguous="infer", nonexistent="shift_forward") \
-                .tz_convert("UTC").tz_localize(None)
-        s.index = idx
-        # fallback als er toch dubbelen zijn
-        s = s.groupby(s.index).mean()
-        return s.astype("float32")
+    # --- Uitlijnen op 15-min grid zonder tijdzones ---
+    data_verbruik, data_opbrengst = align_to_common_15min_grid(s_v, s_o)
 
-    data_verbruik  = tz_normalize_to_utc(data_verbruik)
-    data_opbrengst = tz_normalize_to_utc(data_opbrengst)
-
-    aligned = (
-        pd.DataFrame({"verbruik": data_verbruik})
-        .join(pd.DataFrame({"opbrengst": data_opbrengst}), how="inner")
-    )
-    data_verbruik  = aligned["verbruik"]
-    data_opbrengst = aligned["opbrengst"]
-
-
-    
-
-    # (optioneel) klein voorbeeld tonen i.p.v. hele DF om RAM te sparen
+    # RAM-vriendelijke preview
     st.caption("Voorbeeld verbruik (eerste 500 rijen)")
     st.dataframe(data_verbruik.head(500).to_frame(name=col_verbruik), use_container_width=True)
     st.caption("Voorbeeld opbrengst (eerste 500 rijen)")
     st.dataframe(data_opbrengst.head(500).to_frame(name="Opbrengst"), use_container_width=True)
+
+    st.markdown('<div class="section-header">3. Analyse & Visualisatie</div>', unsafe_allow_html=True)
 
     plotter = PlotManager()
 
