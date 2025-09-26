@@ -236,8 +236,27 @@ if uploaded_verbruik and uploaded_opbrengst:
     ).astype("float32") * 4.0  # jouw bestaande *4 logica behouden
 
     # Maak 1 gemeenschappelijke datetime-index (zonder extra DataFrame-kopie)
-    common_index = pd.to_datetime(df_verbruik.index[:len(data_verbruik)], errors="coerce")
-    data_verbruik.index = common_index
+    def tz_normalize_to_utc(s: pd.Series, tz="Europe/Amsterdam") -> pd.Series:
+        idx = pd.to_datetime(s.index, errors="coerce")
+        s = s[~idx.isna()]
+        idx = idx.tz_localize(tz, ambiguous="infer", nonexistent="shift_forward") \
+                .tz_convert("UTC").tz_localize(None)
+        s.index = idx
+        # fallback als er toch dubbelen zijn
+        s = s.groupby(s.index).mean()
+        return s.astype("float32")
+
+    data_verbruik  = tz_normalize_to_utc(data_verbruik)
+    data_opbrengst = tz_normalize_to_utc(data_opbrengst)
+
+    aligned = (
+        pd.DataFrame({"verbruik": data_verbruik})
+        .join(pd.DataFrame({"opbrengst": data_opbrengst}), how="inner")
+    )
+    data_verbruik  = aligned["verbruik"]
+    data_opbrengst = aligned["opbrengst"]
+
+
 
     # Opbrengst: afhankelijk van bron ("Processor" of upload)
     if data_type == "Berekenen":  # = je had uploaded_opbrengst == "Processor"
