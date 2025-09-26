@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from plot_manager import PlotManager
 from plot_weektrends import plot_weektrends, plot_weektrends_summary, plot_weektrends_per_quartile_stats, plot_accu_week_simulatie, plot_accu_week_simulatie_select
-from pvlib_init import Initialize_Systeem, get_parameters
+from pvlib_init import Initialize_Systeem1, Initialize_Systeem2, get_parameters
 from ml_clustering import cluster_typical_profiles
 import time 
 import matplotlib.pyplot as plt
@@ -12,6 +12,16 @@ import os
 #from dotenv import load_dotenv
 
 st.set_page_config(page_title="Energie Analyse (Nieuw)", layout="wide")
+import os, psutil, tracemalloc, streamlit as st
+proc = psutil.Process(os.getpid())
+
+if "trace_on" not in st.session_state:
+    tracemalloc.start()
+    st.session_state.trace_on = True
+
+cur, peak = tracemalloc.get_traced_memory()
+st.sidebar.write(f"RAM process: {proc.memory_info().rss/1e6:.1f} MB")
+st.sidebar.write(f"tracemalloc current/peak: {cur/1e6:.1f} / {peak/1e6:.1f} MB")
 
 
 
@@ -21,6 +31,27 @@ BASE_DIR = os.path.dirname(__file__)
 logo_path = os.path.join(BASE_DIR, "LO-Bind-FC-RGB.png")
 
 logo = mpimg.imread(logo_path)
+
+PV_MODULETYPES = {
+    "Topsun_TS_S400SA1": 400,
+    "Heliene_96M400": 400,
+    "LG_Electronics_Inc__LG400N2W_V5": 400,
+    "Grape_Solar_GS_S_420_KR3": 420,
+    "Sunpreme_Inc__SNPM_HxB_420": 420,
+    "Topsun_TS_M420JA1": 420,
+    "SunPower_SPR_E20_440_COM": 440,
+    "Solaria_Corporation_Solaria_PowerXT_440C_PD": 440,
+    "Heliene_96P440": 440,
+    "ENN_Solar_Energy_EST_460": 460,
+    "Sunpower_SPR_X21_460_COM": 460,
+    "SunPower_SPR_X22_475_COM": 475,
+    "Sunpower_SPR_X22_480_COM": 480,
+    "Miasole_FLEX_03_480W": 480,
+    "First_Solar__Inc__FS_497": 497,
+    "Miasole_FLEX_03_500W": 500,
+    "Sunpreme_Inc__SNPM_GxB_500": 500
+}
+
 
 st.markdown("""
 <style>
@@ -48,9 +79,9 @@ with st.sidebar:
     max_afname = st.number_input("Max afname (kW) (positief getal)", min_value=0.0, value=10.0)
     max_teruglevering = st.number_input("Max teruglevering (kW)(positief getal)", min_value=0.0, value=10.0)
     vermogen_omvormer = st.number_input("Vermogen omvormer (kW)", min_value=0.0, value=2.0)
-    type_omvormer = st.selectbox("Type omvormer", options=["Enphase", "SolarEdge", "Fronius"], index=0)
-    type_paneel = st.selectbox("Type paneel", options=["Monokristallijn", "Polykristallijn", "Dunne film"], index=0)
-
+    type_omvormer = "Enphase" #st.selectbox("Type omvormer", options=["Enphase", "SolarEdge", "Fronius"], index=0)
+    type_paneel = st.selectbox("Type paneel", options=PV_MODULETYPES, index=0)
+    #vermogen_paneel = st.selectbox("Vermogen paneel (Wp)", options=[300, 350, 400, 450, 500], index=3)
     
     
     aantal_jaar = st.number_input("Aantal jaren voor voorspelling", min_value=1, max_value=2, value=1)
@@ -58,7 +89,7 @@ with st.sidebar:
     begin_datum = st.date_input("Startdatum", value=pd.to_datetime('2023-01-01'))
     
     zonnedata_pos_neg = st.selectbox("Zonnedata positief of negatief", options=["positief", "negatief"], index=0)
-    weer_scenario = st.selectbox("Weer scenario", options=["goed_weer", "slecht_weer", "bewolkt", "wisselvallig"], index=0)
+    weer_scenario = "goed weer" #st.selectbox("Weer scenario", options=["goed_weer", "slecht_weer", "bewolkt", "wisselvallig"], index=0)
     st.title("Paneel orientatie 1")
     orientatie1 = st.number_input("Orientatie kant 1, zuid=0, west=90, noord=180, oost=270 etc.", min_value=0, max_value=360, value=90, step=1)
     Hellingshoek1 = st.selectbox("Hellingshoek 1", options=[0, 15, 45, 90], index=2, label_visibility="collapsed")
@@ -77,6 +108,7 @@ with st.sidebar:
     breedtegraad = st.number_input("Breedtegraad", value=52.13)
     lengtegraad = st.number_input("Lengtegraad", value=6.54)   
 st.markdown('<div class="section-header">1. Upload je kwartierdata</div>', unsafe_allow_html=True)
+
 
 
 @st.cache_resource
@@ -131,9 +163,9 @@ if uploaded_verbruik and uploaded_opbrengst:
         start = time.time()
         with st.spinner("Berekenen kwartierdata..."):
             plt.clf()
-            location, module, inverter, temperature_parameters = get_parameters(_breedtegraad=breedtegraad, _lengtegraad=lengtegraad, _tijdzone="Europe/Amsterdam", _hoogte=42)
+            location, module, inverter, temperature_parameters = get_parameters(_breedtegraad=breedtegraad, _lengtegraad=lengtegraad, _tijdzone="Europe/Amsterdam", _hoogte=42, _type_paneel=type_paneel)
             
-            df_opbrengst1 = Initialize_Systeem(
+            df_opbrengst1 = Initialize_Systeem1(
                 _location=location, 
                 _module=module, 
                 _inverter=inverter, 
@@ -147,7 +179,7 @@ if uploaded_verbruik and uploaded_opbrengst:
             
             
             
-            df_opbrengst2 = Initialize_Systeem(
+            df_opbrengst2 = Initialize_Systeem2(
                 _location = location, 
                 _module = module, 
                 _inverter = inverter, 
@@ -385,11 +417,19 @@ if uploaded_verbruik and uploaded_opbrengst:
 
     with tab7:
         st.markdown("#### Accu module")
-        capaciteit = st.number_input("Accu capaciteit (kWh)", min_value=1.0, value=10.0)
-        strategie = st.selectbox("Gebruik", options=["Piek", "Gedurende dag"], index=1)
-        plot_accu_week_simulatie(data_verbruik, data_opbrengst, capaciteit, max_afname, max_teruglevering)
-        plot_accu_week_simulatie_select(data_verbruik, data_opbrengst, capaciteit, max_afname, max_teruglevering)
-        
+        with st.expander("Toelichting accu module"): 
+            capaciteit = st.number_input("Accu capaciteit (kWh)", min_value=1.0, value=10.0)
+            
+            peak_shaven = st.checkbox("Peak shaven? (accu gebruiken om pieken te dempen)", value=True, key="peak_shaven")
+            pv_zelf_consumptie = st.checkbox("PV zelf consumptie? (accu gebruiken om pv opbrengst op te slaan en 's nachts te ontladen)", value=True, key="pv_zelf_consumptie")
+            state_of_charge = st.checkbox("State of Charge gebruiken? (Gebruik state of charge om 's nachts te laden uit net om ochtendpiek op te vangen)", value=False, key="state_of_charge")
+            var_tarieven = st.checkbox("Variabele tarieven? (Gebruik variabele tarieven om accu te laden als stroom goedkoop is)", value=False, key="var_tarieven")
+            if state_of_charge is True:
+                st.slider("Minimale state of charge (%)", min_value=0, max_value=100, value=40, key="min_soc")
+                st.number_input("Maximale laadsnelheid (kW)", min_value=0.0, value=2.0, key="max_charge_rate")
+            plot_accu_week_simulatie(data_verbruik, data_opbrengst, capaciteit, max_afname, max_teruglevering)
+            plot_accu_week_simulatie_select(data_verbruik, data_opbrengst, capaciteit, max_afname, max_teruglevering)
+            
         
         
 

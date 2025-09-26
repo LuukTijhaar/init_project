@@ -1,6 +1,9 @@
 import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
+from typing import Optional
+
+
 
 def _add_day_lines_and_labels(ax, min_len):
     # Voeg verticale lijnen toe bij dagovergangen
@@ -286,3 +289,59 @@ def plot_accu_week_simulatie_select(verbruik: pd.Series, opbrengst: pd.Series, a
         f"Week {weeknrs[idx]}: totaal verbruik {v.sum():.2f} kWh, totaal opbrengst {o.sum():.2f} kWh, "
         f"max acculading {max(accu):.2f} kWh, totaal tekort {sum(tekort):.2f} kWh"
     )
+
+def accu_stand_calculator(verbruik: pd.Series, opbrengst: pd.Series, accu_capaciteit: float, peak_shaven=False, pv_zelf_consumption=False, state_of_charge=False, var_tarieven=False, min_vermogen_accu=20, grenswaarde=50, max_laden = 5):
+    """
+    Simuleer de accu-stand over een periode gegeven een startwaarde.
+    Toont ook het tekort als verbruik > afnamelimiet en accu leeg is.
+    """
+    # Zorg dat indexen gelijk en datetime zijn
+    verbruik = verbruik.copy()
+    opbrengst = opbrengst.copy()
+    verbruik.index = pd.to_datetime(verbruik.index)
+    opbrengst.index = pd.to_datetime(opbrengst.index)
+    min_len = min(len(verbruik), len(opbrengst))
+    verbruik = verbruik.iloc[:min_len]
+    opbrengst = opbrengst.iloc[:min_len]
+
+    n = len(verbruik)
+
+    # Simuleer accuvermogen per kwartier + tekort
+    # Rekenregels voor verschillende strategieën; 
+    # pv zelf_consumptie; wannneer pv zelfconsumptie het doel is eerst eigen gebruik simuleren en daarna pas laden met overschot, 's nachts ontladen. 
+    # peak shaven; wanneer piekafname het doel is eerst ontladen bij verbruik boven grenswaarde, daarna pas laden met overschot grenswaarde moet zvm gehaald worden op pieken op te vangen. 
+    # var_tarieven; wanneer variabele tarieven het doel is, ontladen bij hoge tarieven en laden bij lage tarieven.
+    # 's nachts wordt de stand van de accu gecheckt en opgeladen tot een bepaald punt (bijv. 6 uur 's ochtends) om de ochtendpiek op te vangen. 
+    for kwartier in verbruik: 
+        a = 0
+
+
+def instellingen_accu(peak_shave="uit", pv_zelf_consumption="uit", state_of_charge="uit", var_tarieven="uit", grenswaarde_ontladen=50, accu_capaciteit=100, max_laden_uit_net=0):
+    """
+    Hulpfunctie accu module om te bepalen hoe de accu zich gedraagt over de dag.
+    """
+    if max_laden_uit_net == 0:
+        max_laden_uit_net = False
+    if peak_shave == "aan":
+        peak_shaven = grenswaarde_ontladen
+
+def peak_shave(grenswaarde_ontladen:int, grenswaarde_opladen:int):
+        """We gaan het zo aanpakken, we checken eerst of peak shaven aan staat, deze bepaalt het minimale vermogen wat in de accu mag zitten. Pv-zelfconsumptie betekent gewoon dat ze niet terugleveren en gewoon overschotten opsparen en later gebruiken. 
+        State of charge betekent dat we 's nachts de stand van de accu checken en opladen tot een bepaald punt (bijv. 6 uur 's ochtends) om de ochtendpiek op te vangen, deze is relatief duur. Combineren kan door eerst peak shaven te doen, daarna pv zelfconsumptie en dan state of charge. 
+        State of charge zit pv_zelfconsumptie ook niet echt in de weg."""
+        accu_stand = 0
+        afnamelimiet = 5
+        verbruik = 10
+        opbrengst = 0
+        if accu_stand < grenswaarde_ontladen:
+            # Accu opladen tot grenswaarde
+            max_laden = afnamelimiet-(verbruik-opbrengst)
+            if max_laden > 0:
+                laden = min(max_laden, grenswaarde_opladen)
+            else: 
+                laden = 0
+            accu_stand = accu_stand + laden
+        elif accu_stand > grenswaarde_ontladen:
+            # Accu ontladen bij verbruik boven grenswaarde
+            
+            accu_stand = accu_stand - (verbruik-opbrengst)
