@@ -10,6 +10,7 @@ import matplotlib.image as mpimg
 import io 
 import os 
 import gc
+import ctypes
 from functools import lru_cache
 #from dotenv import load_dotenv
 
@@ -118,9 +119,44 @@ st.markdown("""
 
 with st.sidebar:
     st.header("Instellingen")
-    if st.button("Verwijder cache geheugen", key="reset_settings"):
+    
+    def hard_cleanup(preserve_keys=("trace_on",)):
+        # 1) Session state leegmaken (maar behoud wat nodig is)
+        for k in list(st.session_state.keys()):
+            if k not in preserve_keys:
+                del st.session_state[k]
+
+        # 2) Matplotlib volledig sluiten en caches legen
+        try:
+            plt.close('all')
+            from matplotlib import font_manager as fm
+            fm._rebuild()  # kleine cache reset
+        except Exception:
+            pass
+
+        # 3) Streamlit caches legen
         st.cache_data.clear()
-        st.success("Cache geheugen is gewist. Herlaad de pagina om opnieuw te beginnen.")
+        st.cache_resource.clear()
+
+        # 4) Lokale grote variabelen/globals opruimen
+        g = globals()
+        for name in list(g.keys()):
+            if name.startswith(("df_", "data_", "s_", "fig", "ax", "output", "excel_bytes", "csv_bytes")):
+                g.pop(name, None)
+
+        # 5) GC + heap trim (geeft RAM terug aan OS op Linux)
+        gc.collect()
+        try:
+            ctypes.CDLL("libc.so.6").malloc_trim(0)
+        except Exception:
+            pass
+
+    with st.sidebar:
+        if st.button("🧹 Hard cleanup (RAM vrijmaken)"):
+            hard_cleanup()
+            st.success("Geheugen opgeschoond.")
+            st.experimental_rerun()
+
     max_afname = st.number_input("Max afname (kW) (positief getal)", min_value=0.0, value=10.0)
     max_teruglevering = st.number_input("Max teruglevering (kW)(positief getal)", min_value=0.0, value=10.0)
     vermogen_omvormer = st.number_input("Vermogen omvormer (kW)", min_value=0.0, value=2.0)
