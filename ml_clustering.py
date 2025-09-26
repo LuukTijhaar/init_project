@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import streamlit as st
 from sklearn.cluster import KMeans
+import gc
 
 @st.cache_data
 def cluster_typical_profiles(verbruik: pd.Series, n_clusters=7, use_weekend=True, random_state=42):
@@ -38,6 +39,8 @@ def cluster_typical_profiles(verbruik: pd.Series, n_clusters=7, use_weekend=True
     ax.legend()
     plt.tight_layout()
     st.pyplot(fig)
+    plt.close(fig)  # Sluit de figuur om geheugen vrij te maken
+    gc.collect()
     # Clusterverdeling
     unique, counts = np.unique(labels, return_counts=True)
     cluster_counts = {int(k)+1: int(v) for k, v in zip(unique, counts)}  # cast keys & values

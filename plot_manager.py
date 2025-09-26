@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import os
 from copy import deepcopy
+import gc
 import matplotlib.image as mpimg
 class PlotManager:
     @st.cache_data
@@ -35,6 +36,8 @@ class PlotManager:
         logo_ax.imshow(logo)
         logo_ax.axis('off')
         st.pyplot(fig)
+        plt.close(fig)  # Sluit de figuur om geheugen vrij te maken
+        gc.collect()
 
     def _bereken_belastingduurkromme(verbruiken):
         n = len(verbruiken)
@@ -128,6 +131,8 @@ class PlotManager:
         logo_ax.axis('off')
         fig.tight_layout()
         st.pyplot(fig)
+        plt.close(fig)  # Sluit de figuur om geheugen vrij te maken
+        gc.collect()
         st.markdown(f"""
                 <p style="font-size:18px;">
                 <h1>Overschrijding afname: {overmatige_afname.sum() * 0.25:.2f} kWh </h1><br>
@@ -195,6 +200,8 @@ class PlotManager:
         ax.grid(True)
         fig.tight_layout()
         st.pyplot(fig)
+        plt.close(fig)  # Sluit de figuur om geheugen vrij te maken
+        gc.collect()
 
    
     def plot_reeksen_en_verschil(_self, _opbrengst: pd.Series, _verbruik: pd.Series, _titel="Opbrengst vs Verbruik", show_opbrengst=True, show_verbruik=True, show_verschil=True, _max_afname=0, _max_teruglevering=0):
@@ -240,3 +247,5 @@ class PlotManager:
         logo_ax.axis('off')
         fig.tight_layout()
         st.pyplot(fig)
+        plt.close(fig)  # Sluit de figuur om geheugen vrij te maken
+        gc.collect()

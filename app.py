@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 import io 
 import os 
+import gc
+from functools import lru_cache
 #from dotenv import load_dotenv
 
 st.set_page_config(page_title="Energie Analyse (Nieuw)", layout="wide")
@@ -23,14 +25,48 @@ cur, peak = tracemalloc.get_traced_memory()
 st.sidebar.write(f"RAM process: {proc.memory_info().rss/1e6:.1f} MB")
 st.sidebar.write(f"tracemalloc current/peak: {cur/1e6:.1f} / {peak/1e6:.1f} MB")
 
+LIGHT_RSS_MB = 900  # Adjust based on observed "light" memory usage in MB
+
+def rss_mb():
+    return psutil.Process(os.getpid()).memory_info().rss / 1e6
+
+def mem_optimize_df(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    # downcast numeriek
+    for c in df.select_dtypes(include="float").columns:
+        df[c] = pd.to_numeric(df[c], downcast="float")
+    for c in df.select_dtypes(include="int").columns:
+        df[c] = pd.to_numeric(df[c], downcast="integer")
+    # strings -> category als dat loont
+    for c in df.select_dtypes(include="object").columns:
+        u = df[c].nunique(dropna=False)
+        if u < 0.5 * len(df):
+            df[c] = df[c].astype("category")
+    return df
+
+@st.chache_data(show_spinner=False, ttl=3600, max_entries=6)
+def read_excel_smart(file, index_col=0, parse_dates=True) -> pd.DataFrame: 
+    df = pd.read_excel(file, index_col=index_col, parse_dates=parse_dates,
+        engine="openpyxl", engine_kwargs={"data_only": True})
+    if parse_dates and not pd.api.types.is_datetime64_any_dtype(df.index):
+        df.index = pd.to_datetime(df.index, errors="coerce")
+    return mem_optimize_df(df)
+
+def as_float32_series(s: pd.Series) -> pd.Series: 
+    s = pd.Series(pd.to_numeric(s, errors="coerce"), index=s.index, name=s.name)
+    return s.astype("float32")
+
+@st.cache_data 
+def load_logo_bytes(path: str) -> bytes:
+    with open(path, "rb") as f: 
+        return f.read()
+
+logo = load_logo_bytes("src/init_project/LO-Bind-FC-RGB.png")
 
 
 BASE_DIR = os.path.dirname(__file__)
 
-# pad naar het logo
-logo_path = os.path.join(BASE_DIR, "LO-Bind-FC-RGB.png")
 
-logo = mpimg.imread(logo_path)
 
 PV_MODULETYPES = {
     "Topsun_TS_S400SA1": 400,
@@ -109,44 +145,6 @@ with st.sidebar:
     lengtegraad = st.number_input("Lengtegraad", value=6.54)   
 st.markdown('<div class="section-header">1. Upload je kwartierdata</div>', unsafe_allow_html=True)
 
-
-
-@st.cache_resource
-def laad_dataframes(file, index_col=0, parse_dates=True):
-    """
-    Laad een Excel-bestand (xlsx of xls) en retourneer een DataFrame.
-    Ondersteunt Streamlit UploadedFile en gewone paden.
-    Vangt fouten bij corrupte stijlen op.
-    """
-    if file is None:
-        return None
-
-    # Probeer .xlsx eerst met openpyxl
-    try:
-        df = pd.read_excel(
-            file,
-            index_col=index_col,
-            parse_dates=parse_dates,
-            engine='openpyxl',
-            engine_kwargs={'data_only': True}  # negeer formules/stijlen
-        )
-        return df
-    except Exception as e_xlsx:
-        st.warning(f"Kon .xlsx niet lezen: {e_xlsx}")
-
-        # Probeer .xls via xlrd
-        try:
-            df = pd.read_excel(
-                file,
-                index_col=index_col,
-                parse_dates=parse_dates,
-                engine='xlrd'
-            )
-            return df
-        except Exception as e_xls:
-            st.error(f"Kon bestand niet laden als Excel: {e_xls}")
-            return None
-
 uploaded_verbruik = st.file_uploader("Upload verbruik kwartierdata (excel, index=datetime)", type=["xlsx"], key="verbruik")
 
 data_type = st.selectbox("Type opbrengst data", options=["Aanleveren", "Berekenen"], index=0)
@@ -204,34 +202,54 @@ if uploaded_verbruik and uploaded_opbrengst:
             
         st.write("Duur:", time.time() - start)
     else: 
-        df_opbrengst = laad_dataframes(uploaded_opbrengst, index_col=0, parse_dates=True)
-    df_verbruik = laad_dataframes(uploaded_verbruik, index_col=0, parse_dates=True)
+        df_opbrengst = read_excel_smart(uploaded_opbrengst, index_col=0, parse_dates=True)
+    df_verbruik = read_excel_smart(uploaded_verbruik, index_col=0, parse_dates=True)
     
     st.success("✅ Data succesvol geladen!")
-    st.markdown('<div class="section-header">Voorbeeld verbruik</div>', unsafe_allow_html=True)
-    st.dataframe(df_verbruik, use_container_width=True)
-    st.markdown('<div class="section-header">Voorbeeld opbrengst</div>', unsafe_allow_html=True)
-    st.dataframe(df_opbrengst, use_container_width=True)
+    light_mode = rss_mb() > LIGHT_RSS_MB
+    n_show = 500 if light_mode else 1500
+    st.caption("Voorbeeld verbruik")
+    st.dataframe(df_verbruik.head(n_show), use_container_width=True)
+    st.caption("Voorbeeld opbrengst")
+    st.dataframe(df_opbrengst.head(n_show), use_container_width=True)
 
     st.markdown('<div class="section-header">2. Selecteer kolommen verbruik en opbrengst</div>', unsafe_allow_html=True)
-    
-    data_verbruik = st.text_input("Kolom verbruiksdata:", value="Verbruik")
-    
-    data_verbruik = df_verbruik[data_verbruik]
-    data_verbruik = data_verbruik.iloc[:35040]*4  # Voorbeeld: neem de eerste 35.178 rijen en naar kW
-    data_verbruik.index = pd.to_datetime(df_verbruik.iloc[:35040, 0])
-    if uploaded_opbrengst != "Processor":
-        data_opbrengst = st.text_input("Kolom opbrengstdata:", value="Verbruik")
-        data_opbrengst = df_opbrengst[data_opbrengst]
-        data_opbrengst = data_opbrengst.iloc[:35040]  # Voorbeeld: neem de eerste 35.178 rijen
+
+    # We werken met maximaal 1 jaar kwartierdata
+    N = 35040
+
+    # Kies verbruiks-kolom (standaard "Verbruik")
+    col_verbruik = st.text_input("Kolom verbruiksdata:", value="Verbruik")
+
+    # Verbruik: compact en zonder extra kopieën
+    data_verbruik = pd.to_numeric(
+        df_verbruik[col_verbruik].iloc[:N], errors="coerce"
+    ).astype("float32") * 4.0  # jouw bestaande *4 logica behouden
+
+    # Maak 1 gemeenschappelijke datetime-index (zonder extra DataFrame-kopie)
+    common_index = pd.to_datetime(df_verbruik.index[:len(data_verbruik)], errors="coerce")
+    data_verbruik.index = common_index
+
+    # Opbrengst: afhankelijk van bron ("Processor" of upload)
+    if data_type == "Berekenen":  # = je had uploaded_opbrengst == "Processor"
+        data_opbrengst = pd.to_numeric(
+            df_opbrengst.iloc[:len(common_index)], errors="coerce"
+        ).astype("float32")
     else:
-        data_opbrengst = df_opbrengst
-        data_opbrengst = data_opbrengst.iloc[:35040]
-    data_opbrengst.index = pd.to_datetime(df_verbruik.iloc[:35040, 0])
-    #st.dataframe(data_verbruik.head(), use_container_width=True)
-    #st.dataframe(data_opbrengst.head(), use_container_width=True)
-    #st.write(type(data_verbruik), type(data_opbrengst))
-    st.markdown('<div class="section-header">3. Analyse & Visualisatie</div>', unsafe_allow_html=True)
+        col_opbrengst = st.text_input("Kolom opbrengstdata:", value=df_opbrengst.columns[0])
+        data_opbrengst = pd.to_numeric(
+            df_opbrengst[col_opbrengst].iloc[:len(common_index)], errors="coerce"
+        ).astype("float32")
+
+    # Indexen uitlijnen zonder vullen (voorkomt extra kopieën/length mismatch)
+    data_opbrengst = data_opbrengst.reindex(common_index)
+
+    # (optioneel) klein voorbeeld tonen i.p.v. hele DF om RAM te sparen
+    st.caption("Voorbeeld verbruik (eerste 500 rijen)")
+    st.dataframe(data_verbruik.head(500).to_frame(name=col_verbruik), use_container_width=True)
+    st.caption("Voorbeeld opbrengst (eerste 500 rijen)")
+    st.dataframe(data_opbrengst.head(500).to_frame(name="Opbrengst"), use_container_width=True)
+
     plotter = PlotManager()
 
     tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
@@ -247,7 +265,7 @@ if uploaded_verbruik and uploaded_opbrengst:
     with tab1:
         st.markdown("#### Belastingduurkromme (op basis van verbruik)")
         plotter.plot_belastingduurkromme(data_verbruik)
-
+       
     with tab2:
         st.markdown("#### Energiebalans op een dag")
         dag = st.date_input("Kies een dag", value=data_verbruik.index[0].date())
@@ -312,13 +330,12 @@ if uploaded_verbruik and uploaded_opbrengst:
             ax.set_xlabel("Datum")
             ax.set_ylabel("Energie (som per dag)")
             ax.set_title("Dagtotalen verbruik, opbrengst en verschil")
-            logo_ax = fig.add_axes([0.8, 0.08, 0.18, 0.18], anchor='NE', zorder=1)
-            logo_ax.imshow(logo)
-            logo_ax.axis('off')
+
             ax.legend()
             ax.grid(True)
             fig.tight_layout()
             st.pyplot(fig)
+            plt.close(fig); gc.collect()
 
         plot_dagtotalen_en_verschil(data_verbruik, data_opbrengst)
 
@@ -334,77 +351,42 @@ if uploaded_verbruik and uploaded_opbrengst:
     with tab5:
         st.markdown("#### Heatmap: Max kwartierverbruik per dag (% van limiet)")
         def plot_max_dagpiek_heatmap(verbruik: pd.Series, opbrengst: pd.Series, max_afname: float):
-            """
-            Plot een heatmap van het hoogste (verbruik - opbrengst) per dag als percentage van max_afname.
-            Geeft ook aan hoe vaak het limiet wordt overschreden.
-            """
-            from matplotlib.colors import LinearSegmentedColormap
-            import seaborn as sns
-
-            # Zorg dat indexen datetime zijn
-            verbruik = verbruik.copy()
-            opbrengst = opbrengst.copy()
-            verbruik.index = pd.to_datetime(verbruik.index)
-            opbrengst.index = pd.to_datetime(opbrengst.index)
-
-            # Zorg dat series even lang zijn
+            verbruik = verbruik.astype("float32")
+            opbrengst = opbrengst.astype("float32")
             min_len = min(len(verbruik), len(opbrengst))
             verbruik = verbruik.iloc[:min_len]
             opbrengst = opbrengst.iloc[:min_len]
 
-            # Verschil per kwartier
-            verschil = verbruik - opbrengst
+            verschil = (verbruik - opbrengst)
+            piek_per_dag = verschil.resample("D").max()
+            perc_per_dag = (piek_per_dag / max_afname) * 100.0
 
-            # Per dag: hoogste kwartierwaarde (piek) van verschil
-            piek_per_dag = verschil.resample('D').max()
+            df = pd.DataFrame({"perc": perc_per_dag})
+            df["day"] = df.index.day
+            df["month"] = df.index.month
+            pivot = df.pivot_table(index="month", columns="day", values="perc", aggfunc="mean")
 
-            # Zet om naar percentage van max_afname
-            perc_per_dag = (piek_per_dag / max_afname) * 100
+            fig, ax = plt.subplots(figsize=(12, 6))
+            im = ax.imshow(pivot.values, aspect="auto", vmin=0, vmax=100)
+            ax.set_yticks(range(len(pivot.index)))
+            ax.set_yticklabels([pd.Timestamp(year=2000, month=m, day=1).strftime("%B") for m in pivot.index])
+            ax.set_xticks(range(pivot.shape[1]))
+            ax.set_xticklabels(pivot.columns)
+            ax.set_xlabel("Day of month")
+            ax.set_ylabel("Month")
+            ax.set_title("Max kwartierverbruik per dag (% van max afname)")
+            fig.colorbar(im, ax=ax, label="% van limiet")
+            fig.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig); gc.collect()
 
-            # Statistiek: aantal dagen limiet overschreden
             overschrijdingen = (piek_per_dag > max_afname).sum()
             totaal_dagen = piek_per_dag.shape[0]
+            st.write(
+                f"📅 Hoogste piek: {perc_per_dag.idxmax().date()} – {perc_per_dag.max():.1f}% "
+                f"| 🚨 Overschrijdingen: {overschrijdingen}/{totaal_dagen} ({overschrijdingen/totaal_dagen:.1%})"
+            )
 
-            # Maak DataFrame met dag en maand
-            df = pd.DataFrame({'percentage': perc_per_dag})
-            df['dag'] = df.index.day
-            df['maand'] = df.index.month_name()
-
-            # Pivot: rijen = maand, kolommen = dag
-            pivot = df.pivot_table(index="maand", columns="dag", values="percentage", aggfunc="mean")
-
-            # Maanden in logische volgorde
-            maanden_volgorde = [
-                "January", "February", "March", "April", "May", "June",
-                "July", "August", "September", "October", "November", "December"
-            ]
-            pivot = pivot.reindex(maanden_volgorde)
-
-            colors = [
-                (0.0, 'green'),
-                (0.8, 'yellow'),
-                (1.0, 'red'),
-            ]
-
-            custom_cmap = LinearSegmentedColormap.from_list("green_yellow_red", colors)
-
-            fig, ax = plt.subplots(figsize=(16, 8))
-            sns.heatmap(pivot, annot=True, fmt=".1f", cmap=custom_cmap, vmin=0, vmax=100,
-                        linewidths=0.5, linecolor='gray', ax=ax)
-
-            ax.set_title("Max kwartierverbruik per dag (% van max afname)", fontsize=16)
-            ax.set_xlabel("Dag van de maand")
-            ax.set_ylabel("Maand")
-            plt.tight_layout()
-            logo_ax = fig.add_axes([0.8, -0.10, 0.18, 0.18], anchor='NE', zorder=1)
-            logo_ax.imshow(logo)
-            logo_ax.axis('off')
-            # Hoogste dag
-            max_perc = perc_per_dag.max()
-            max_dag = perc_per_dag.idxmax()
-            st.pyplot(fig)
-            st.write(f"📅 **Dag met hoogste piek:** {max_dag.date()} met {max_perc:.2f}% van max afname")
-            st.write(f"🚨 **Aantal dagen limiet overschrijden:** {overschrijdingen} van {totaal_dagen} dagen ({overschrijdingen/totaal_dagen:.1%})")
 
         plot_max_dagpiek_heatmap(data_verbruik, data_opbrengst, max_afname)
 
@@ -427,27 +409,27 @@ if uploaded_verbruik and uploaded_opbrengst:
             if state_of_charge is True:
                 st.slider("Minimale state of charge (%)", min_value=0, max_value=100, value=40, key="min_soc")
                 st.number_input("Maximale laadsnelheid (kW)", min_value=0.0, value=2.0, key="max_charge_rate")
-            plot_accu_week_simulatie(data_verbruik, data_opbrengst, capaciteit, max_afname, max_teruglevering)
-            plot_accu_week_simulatie_select(data_verbruik, data_opbrengst, capaciteit, max_afname, max_teruglevering)
-            
+            if st.button("📈 Simuleer accu (week)"):
+                plot_accu_week_simulatie(...)
+                plot_accu_week_simulatie_select(...)
         
         
 
-    df = pd.DataFrame({
-        "Verbruik (kW)": data_verbruik,
-        "Opbrengst (kW)": data_opbrengst})
+    df_out = pd.DataFrame({"Verbruik (kW)": data_verbruik, "Opbrengst (kW)": data_opbrengst})
+    csv_bytes = df_out.to_csv(index=True).encode("utf-8")
+    st.download_button("📥 Download CSV", data=csv_bytes, file_name="kwartierdata_resultaten.csv", mime="text/csv")
+
+    # Alleen als je per se Excel wilt:
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="xlsxwriter") as writer: 
-        df.to_excel(writer, index=True, sheet_name="Kwartierdata Resultaten")
-        writer.close()
-        processed_data = output.getvalue()
-    st.info("Download hier je resultaten als Excel-bestand.")
-    st.download_button(
-    label="📥 Download resultaten als Excel",
-    data=processed_data,
-    file_name="kwartierdata_resultaten.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-)
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        df_out.to_excel(writer, sheet_name="Resultaten")
+    excel_bytes = output.getvalue()
+    st.download_button("📥 Download Excel", data=excel_bytes,
+                    file_name="kwartierdata_resultaten.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    del df_out, csv_bytes, excel_bytes, output
+    gc.collect()
+
 
 else:
     st.warning("Upload zowel verbruik als opbrengst kwartierdata-bestanden om te starten.")

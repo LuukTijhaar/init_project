@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 from typing import Optional
-
+import gc
 
 
 def _add_day_lines_and_labels(ax, min_len):
@@ -53,6 +53,8 @@ def plot_weektrends(verbruik: pd.Series, title="Weektrends kwartierdata", max_af
     plt.tight_layout()
     
     st.pyplot(fig)
+    plt.close(fig)  # Sluit de figuur om geheugen vrij te maken
+    gc.collect()
 
 def plot_weektrends_summary(verbruik: pd.Series, title="Gemiddelde, max en min week (kwartierdata)", max_afname=None, max_teruglevering=None):
     """
@@ -91,6 +93,8 @@ def plot_weektrends_summary(verbruik: pd.Series, title="Gemiddelde, max en min w
     _add_day_lines_and_labels(ax, min_len)
     plt.tight_layout()
     st.pyplot(fig)
+    plt.close(fig)  # Sluit de figuur om geheugen vrij te maken
+    gc.collect()
 
     # Toon de sommen onder de grafiek
     st.info(
@@ -133,6 +137,8 @@ def plot_weektrends_per_quartile_stats(verbruik: pd.Series, title="Gemiddelde, m
     _add_day_lines_and_labels(ax, min_len)
     plt.tight_layout()
     st.pyplot(fig)
+    plt.close(fig)  # Sluit de figuur om geheugen vrij te maken
+    gc.collect()
 
 def plot_accu_week_simulatie(verbruik: pd.Series, opbrengst: pd.Series, accu_capaciteit: float, max_afname: float, max_teruglevering: float, title="Accu simulatie week"):
     """
@@ -204,6 +210,8 @@ def plot_accu_week_simulatie(verbruik: pd.Series, opbrengst: pd.Series, accu_cap
     ax.legend(fontsize=12)
     plt.tight_layout()
     st.pyplot(fig)
+    plt.close(fig)  # Sluit de figuur om geheugen vrij te maken
+    gc.collect()
     st.info(
         f"Week {weeknr}: totaal verbruik {v.sum():.2f} kWh, totaal opbrengst {o.sum():.2f} kWh, "
         f"max acculading {max(accu):.2f} kWh, totaal tekort {sum(tekort):.2f} kWh"
@@ -285,6 +293,8 @@ def plot_accu_week_simulatie_select(verbruik: pd.Series, opbrengst: pd.Series, a
     ax.legend(fontsize=12)
     plt.tight_layout()
     st.pyplot(fig)
+    plt.close(fig)  # Sluit de figuur om geheugen vrij te maken
+    gc.collect()
     st.info(
         f"Week {weeknrs[idx]}: totaal verbruik {v.sum():.2f} kWh, totaal opbrengst {o.sum():.2f} kWh, "
         f"max acculading {max(accu):.2f} kWh, totaal tekort {sum(tekort):.2f} kWh"
