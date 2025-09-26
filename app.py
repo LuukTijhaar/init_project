@@ -12,7 +12,7 @@ import os
 #from dotenv import load_dotenv
 
 st.set_page_config(page_title="Energie Analyse (Nieuw)", layout="wide")
-import os, psutil, tracemalloc, streamlit as st
+import psutil, tracemalloc
 proc = psutil.Process(os.getpid())
 
 if "trace_on" not in st.session_state:
