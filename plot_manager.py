@@ -121,7 +121,7 @@ class PlotManager:
         if toon_limiet_overschrijdingen:
             ax.fill_between(tijdstappen, saldo, saldo_beperkt, where=(np.array(saldo) > np.array(saldo_beperkt)), color='yellow', alpha=0.5, label='Limiet overschreden afname')
             ax.fill_between(tijdstappen, saldo, saldo_beperkt, where=(np.array(saldo) < np.array(saldo_beperkt)), color='orange', alpha=0.5, label='Limiet overschreden teruglevering')
-        ax.set_xlabel('Tijdstap')
+        ax.set_xlabel('Tijdstip')
         ax.set_ylabel('Energie')
         ax.set_title(f'Energiebalans dag (totaal saldo: {totaal_saldo:.2f} kWh)')
         ax.legend()

@@ -12,6 +12,12 @@ import os
 import gc
 import ctypes
 from functools import lru_cache
+import numpy as np
+from pathlib import Path
+import seaborn as sns
+from plots import plot_dag_en_maand, plot_max_dagpiek_heatmap
+from utils import read_excel_smart, align_to_common_15min_grid, angle_picker, tilt_picker, PV_MODULETYPES
+
 #from dotenv import load_dotenv
 
 st.set_page_config(page_title="Energie Analyse (Nieuw)", layout="wide")
@@ -31,34 +37,6 @@ LIGHT_RSS_MB = 900  # Adjust based on observed "light" memory usage in MB
 def rss_mb():
     return psutil.Process(os.getpid()).memory_info().rss / 1e6
 
-def mem_optimize_df(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    # downcast numeriek
-    for c in df.select_dtypes(include="float").columns:
-        df[c] = pd.to_numeric(df[c], downcast="float")
-    for c in df.select_dtypes(include="int").columns:
-        df[c] = pd.to_numeric(df[c], downcast="integer")
-    # strings -> category als dat loont
-    for c in df.select_dtypes(include="object").columns:
-        u = df[c].nunique(dropna=False)
-        if u < 0.5 * len(df):
-            df[c] = df[c].astype("category")
-    return df
-
-@st.cache_data(show_spinner=False, ttl=3600, max_entries=6)
-def read_excel_smart(file, index_col=0, parse_dates=True) -> pd.DataFrame: 
-    df = pd.read_excel(file, index_col=index_col, parse_dates=parse_dates,
-        engine="openpyxl", engine_kwargs={"data_only": True})
-    if parse_dates and not pd.api.types.is_datetime64_any_dtype(df.index):
-        df.index = pd.to_datetime(df.index, errors="coerce")
-    return mem_optimize_df(df)
-
-def as_float32_series(s: pd.Series) -> pd.Series: 
-    s = pd.Series(pd.to_numeric(s, errors="coerce"), index=s.index, name=s.name)
-    return s.astype("float32")
-
-
-from pathlib import Path
 
 BASE_DIR = Path(__file__).parent
 LOGO_PATH = BASE_DIR / "LO-Bind-FC-RGB.png"
@@ -78,25 +56,6 @@ else:
     st.caption("Logo niet gevonden (LO-Bind-FC-RGB.png).")
 
 
-PV_MODULETYPES = {
-    "Topsun_TS_S400SA1": 400,
-    "Heliene_96M400": 400,
-    "LG_Electronics_Inc__LG400N2W_V5": 400,
-    "Grape_Solar_GS_S_420_KR3": 420,
-    "Sunpreme_Inc__SNPM_HxB_420": 420,
-    "Topsun_TS_M420JA1": 420,
-    "SunPower_SPR_E20_440_COM": 440,
-    "Solaria_Corporation_Solaria_PowerXT_440C_PD": 440,
-    "Heliene_96P440": 440,
-    "ENN_Solar_Energy_EST_460": 460,
-    "Sunpower_SPR_X21_460_COM": 460,
-    "SunPower_SPR_X22_475_COM": 475,
-    "Sunpower_SPR_X22_480_COM": 480,
-    "Miasole_FLEX_03_480W": 480,
-    "First_Solar__Inc__FS_497": 497,
-    "Miasole_FLEX_03_500W": 500,
-    "Sunpreme_Inc__SNPM_GxB_500": 500
-}
 
 
 st.markdown("""
@@ -157,41 +116,44 @@ with st.sidebar:
             st.success("Geheugen opgeschoond.")
             st.experimental_rerun()
 
-    max_afname = st.number_input("Max afname (kW) (positief getal)", min_value=0.0, value=10.0)
-    max_teruglevering = st.number_input("Max teruglevering (kW)(positief getal)", min_value=0.0, value=10.0)
+    max_afname = st.number_input("Max afname (kW) (positief getal)", min_value=0.0, value=70.0)
+    max_teruglevering = st.number_input("Max teruglevering (kW)(positief getal)", min_value=0.0, value=20.0)
     vermogen_omvormer = st.number_input("Vermogen omvormer (kW)", min_value=0.0, value=2.0)
     type_omvormer = "Enphase" #st.selectbox("Type omvormer", options=["Enphase", "SolarEdge", "Fronius"], index=0)
-    type_paneel = st.selectbox("Type paneel", options=PV_MODULETYPES, index=0)
+    type_paneel = st.selectbox("Vermogen paneel", options=[400, 420, 440, 460, 475, 480, 500], index=0)
     #vermogen_paneel = st.selectbox("Vermogen paneel (Wp)", options=[300, 350, 400, 450, 500], index=3)
     
     
-    aantal_jaar = st.number_input("Aantal jaren voor voorspelling", min_value=1, max_value=2, value=1)
+    aantal_jaar = 1 #st.number_input("Aantal jaren voor voorspelling", min_value=1, max_value=2, value=1)
     
     begin_datum = st.date_input("Startdatum", value=pd.to_datetime('2023-01-01'))
     
-    zonnedata_pos_neg = st.selectbox("Zonnedata positief of negatief", options=["positief", "negatief"], index=0)
+    zonnedata_pos_neg = "positief"
     weer_scenario = "goed weer" #st.selectbox("Weer scenario", options=["goed_weer", "slecht_weer", "bewolkt", "wisselvallig"], index=0)
     st.title("Paneel orientatie 1")
-    orientatie1 = st.number_input("Orientatie kant 1, zuid=0, west=90, noord=180, oost=270 etc.", min_value=0, max_value=360, value=90, step=1)
-    Hellingshoek1 = st.selectbox("Hellingshoek 1", options=[0, 15, 45, 90], index=2, label_visibility="collapsed")
+    orientatie1 = angle_picker("Oriëntatie (°)", default=90, key="ori1") - 180
+    Hellingshoek1 = tilt_picker("Hellingshoek 1 (°)", key="tilt1")
     Panelen_per_reeks1 = st.number_input("Panelen per reeks", min_value=1, value=1)
     Reeksen1 = st.number_input("Aantal reeksen", min_value=1, value=1)
     Reeksen_per_omvormer1 = st.number_input("Reeksen per omvormer", min_value=1, value=1)
     #WP1 = st.number_input("Watt Pieks 1", min_value=100, value=450)
     st.title("Paneel orientatie 2")
-    orientatie2 = st.number_input("Orientatie kant 2, zuid=0, west=90, noord=180, oost=270 etc.", min_value=0, max_value=360, value=90, step=1)
-    Hellingshoek2 = st.selectbox("Hellingshoek 2", options=[0, 15, 45, 90], index=3, label_visibility="collapsed")
+    orientatie2 = angle_picker("Oriëntatie (°)", default=270, key="ori2") - 180
+    Hellingshoek2 = tilt_picker("Hellingshoek 2 (°)", default=13, key="tilt2")
     Panelen_per_reeks2 = st.number_input("Panelen per reeks", min_value=0, value=0)
     Reeksen2 = st.number_input("Aantal reeksen", min_value=0, value=0)
     Reeksen_per_omvormer2 = st.number_input("Reeksen per omvormer", min_value=0, value=1)
     #WP2 = st.number_input("Watt Pieks 2", value=0)
     st.title("Locatie")
     breedtegraad = st.number_input("Breedtegraad", value=52.13)
-    lengtegraad = st.number_input("Lengtegraad", value=6.54)   
+    lengtegraad = st.number_input("Lengtegraad", value=6.54)
+    POWER_TO_TYPES = {}
+    for module, vermogen in PV_MODULETYPES.items():
+        POWER_TO_TYPES.setdefault(vermogen, []).append(module) 
+    type_paneel =POWER_TO_TYPES[type_paneel]  
 st.markdown('<div class="section-header">1. Upload je kwartierdata</div>', unsafe_allow_html=True)
 
 uploaded_verbruik = st.file_uploader("Upload verbruik kwartierdata (excel, index=datetime)", type=["xlsx"], key="verbruik")
-
 data_type = st.selectbox("Type opbrengst data", options=["Aanleveren", "Berekenen"], index=0)
 if data_type == "Berekenen":
     uploaded_opbrengst = "Processor"
@@ -200,48 +162,6 @@ else:
 
 df_verbruik = None
 df_opbrengst = None
-
-def dedup_quarterly_series(s: pd.Series, how: str = "mean") -> pd.Series:
-    # 1) maak datetime-index en filter NaT
-    idx = pd.to_datetime(s.index, errors="coerce")
-    s = pd.Series(pd.to_numeric(getattr(s, "values", s), errors="coerce"), index=idx, name=getattr(s, "name", None))
-    s = s[~s.index.isna()]
-
-    # 2) als tz-aware → naar UTC en dan tz-naive (geen ambiguïteit meer)
-    if isinstance(s.index, pd.DatetimeIndex) and s.index.tz is not None:
-        s.index = s.index.tz_convert("UTC").tz_localize(None)
-
-    # 3) floor naar 15 minuten ZONDER pandas .floor() (voorkomt tz-gedoe)
-    #    15 min = 900_000_000_000 nanoseconden
-    ns = s.index.asi8  # int64 nanoseconds
-    step = 900_000_000_000
-    floored = (ns // step) * step
-    s.index = pd.to_datetime(floored)
-
-    # 4) dubbele timestamps samenvoegen en sorteren
-    if how == "sum":
-        s = s.groupby(s.index).sum()
-    else:
-        s = s.groupby(s.index).mean()
-
-    return s.sort_index().astype("float32")
-
-
-def align_to_common_15min_grid(v: pd.Series, o: pd.Series) -> tuple[pd.Series, pd.Series]:
-    v = dedup_quarterly_series(v, how="mean")  # verbruik evt. "sum" als je dat beter vindt
-    o = dedup_quarterly_series(o, how="mean")
-    # gemeenschappelijke periode
-    start = max(v.index.min(), o.index.min())
-    end   = min(v.index.max(), o.index.max())
-    if pd.isna(start) or pd.isna(end) or start >= end:
-        aligned = pd.DataFrame({"v": v, "o": o}).dropna()
-        return aligned["v"].astype("float32"), aligned["o"].astype("float32")
-    grid = pd.date_range(start=start, end=end, freq="15min")
-    v = v.reindex(grid)
-    o = o.reindex(grid)
-    aligned = pd.DataFrame({"v": v, "o": o}).dropna()
-    return aligned["v"].astype("float32"), aligned["o"].astype("float32")
-
 
 if uploaded_verbruik and uploaded_opbrengst:
     if uploaded_opbrengst == "Processor":
@@ -260,10 +180,8 @@ if uploaded_verbruik and uploaded_opbrengst:
                 _panelen_per_reeks=Panelen_per_reeks1, 
                 _reeksen_per_omvormer=Reeksen_per_omvormer1, 
                 _start_date=begin_datum, 
-                _end_date=begin_datum + pd.DateOffset(years=1))
-            
-            
-            
+                _end_date=begin_datum + pd.DateOffset(years=1)) * 0.65
+           
             df_opbrengst2 = Initialize_Systeem2(
                 _location = location, 
                 _module = module, 
@@ -274,19 +192,11 @@ if uploaded_verbruik and uploaded_opbrengst:
                 _panelen_per_reeks=Panelen_per_reeks2, 
                 _reeksen_per_omvormer=Reeksen_per_omvormer2, 
                 _start_date=begin_datum, 
-                _end_date=begin_datum + pd.DateOffset(years=1))
+                _end_date=begin_datum + pd.DateOffset(years=1)) * 0.65
             
-            #st.write(df_opbrengst2.results.ac.head())
-            df_opbrengst = df_opbrengst1.results.ac*Reeksen1 + df_opbrengst2.results.ac*Reeksen2
-            
-            #st.write(df_opbrengst.head())
-            #plt.clf()
-            #df_opbrengst.plot(figsize=(16, 9), title='AC Power Output')
+            df_opbrengst = (df_opbrengst1*Reeksen1 + df_opbrengst2*Reeksen2) 
 
-            st.write(f"opbrengst over een jaar totaal: {df_opbrengst.sum()/4} kWh, zijde 1: {df_opbrengst1.results.ac.sum()/4*Reeksen1} kWh, zijde 2: {df_opbrengst2.results.ac.sum()/4*Reeksen2} kWh")
-            
-            #st.pyplot(plt.gcf())  # Show the plot in Streamlit
-            
+            st.write(f"opbrengst over een jaar totaal: {df_opbrengst.sum()/4} kWh, zijde 1: {df_opbrengst1.sum()/4*Reeksen1} kWh, zijde 2: {df_opbrengst2.sum()/4*Reeksen2} kWh")
         st.write("Duur:", time.time() - start)
     else: 
         df_opbrengst = read_excel_smart(uploaded_opbrengst, index_col=0, parse_dates=True)
@@ -302,32 +212,35 @@ if uploaded_verbruik and uploaded_opbrengst:
 
     st.markdown('<div class="section-header">2. Selecteer kolommen verbruik en opbrengst</div>', unsafe_allow_html=True)
 
+    col_verbruik = st.text_input("Kolom verbruiksdata:", value="Verbruik")
+    if data_type == "Berekenen":
+        default_col = None
+    else:
+        default_col = df_opbrengst.columns[0] if isinstance(df_opbrengst, pd.DataFrame) else None
+    col_opbrengst = st.text_input("Kolom opbrengstdata:", value=default_col or "Opbrengst")
+
+    # Begin direct met verwerken en visualiseren, geen button meer
     N = 35040  # max 1 jaar kwartierdata
 
     # --- Verbruik ---
-    col_verbruik = st.text_input("Kolom verbruiksdata:", value="Verbruik")
-    s_v = pd.to_numeric(df_verbruik[col_verbruik].iloc[:N], errors="coerce").astype("float32") * 4.0  # behoud jouw *4
+    s_v = pd.to_numeric(df_verbruik[col_verbruik].iloc[:N], errors="coerce").astype("float32") * 4.0
 
     # --- Opbrengst ---
-    if data_type == "Berekenen":  # df_opbrengst komt uit je PV-processor
+    if data_type == "Berekenen":
         if isinstance(df_opbrengst, pd.DataFrame):
             raw_o = df_opbrengst.iloc[:, 0]
         else:
             raw_o = df_opbrengst
         s_o = pd.to_numeric(raw_o.iloc[:N], errors="coerce").astype("float32")
-    else:  # upload
-        default_col = df_opbrengst.columns[0] if isinstance(df_opbrengst, pd.DataFrame) else None
-        col_opbrengst = st.text_input("Kolom opbrengstdata:", value=default_col or "Opbrengst")
+    else:
         if isinstance(df_opbrengst, pd.DataFrame):
             raw_o = df_opbrengst[col_opbrengst]
         else:
             raw_o = df_opbrengst
         s_o = pd.to_numeric(raw_o.iloc[:N], errors="coerce").astype("float32")
 
-    # --- Uitlijnen op 15-min grid zonder tijdzones ---
     data_verbruik, data_opbrengst = align_to_common_15min_grid(s_v, s_o)
 
-    # RAM-vriendelijke preview
     st.caption("Voorbeeld verbruik (eerste 500 rijen)")
     st.dataframe(data_verbruik.head(500).to_frame(name=col_verbruik), use_container_width=True)
     st.caption("Voorbeeld opbrengst (eerste 500 rijen)")
@@ -337,144 +250,33 @@ if uploaded_verbruik and uploaded_opbrengst:
 
     plotter = PlotManager()
 
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-        "Belastingduurkromme", 
-        "Energiebalans dag", 
-        "Dagbalans jaar", 
-        "Opbrengst vs Verbruik",
-        "Max kwartierverbruik heatmap",
-        "Weekoverzicht",
-        "Accu module"
+    # Nieuwe tabvolgorde
+    tab3, tab6, tab7, tab4, tab5, tab2, tab1 = st.tabs([
+        "Dagbalans jaar",        # 1
+        "Weekoverzicht",         # 2
+        "Typische Dagprofielen", # 3
+        "Heatmap",               # 4
+        "Energiebalans dag",     # 5
+        "Opbrengst vs Verbruik", # 6
+        "Belastingduurkromme",   # 7
     ])
 
-    with tab1:
-        st.markdown("#### Belastingduurkromme (op basis van verbruik)")
-        plotter.plot_belastingduurkromme(data_verbruik)
-       
-    with tab2:
-        st.markdown("#### Energiebalans op een dag")
-        dag = st.date_input("Kies een dag", value=data_verbruik.index[0].date())
-        st.write(f"🔍 Gekozen dag: {dag}")
-
-        # Zet 'dag' om naar pd.Timestamp (essentieel)
-        dag = pd.to_datetime(dag)
-
-        # Mask aanmaken
-        mask_v = data_verbruik.index.normalize() == dag
-        mask_o = data_opbrengst.index.normalize() == dag
-        
-        # Filter de Series
-        verbruik_op_dag = data_verbruik[mask_v]
-        opbrengst_op_dag = data_opbrengst[mask_o]
-        
-        toon_verbruik = st.checkbox("Toon verbruik", value=True, key="dag_verbruik")
-        toon_opbrengst = st.checkbox("Toon opbrengst", value=True, key="dag_opbrengst")
-        toon_saldo = st.checkbox("Toon saldo", value=False, key="dag_saldo")
-        toon_saldo_beperkt = st.checkbox("Toon saldo (beperkt)", value=True, key="dag_saldo_beperkt")
-        toon_limieten = st.checkbox("Toon limieten", value=True, key="dag_limieten")
-        toon_limiet_overschrijdingen = st.checkbox("Toon limiet overschrijdingen", value=False, key="dag_limiet_overschrijdingen")
-
-
-        if mask_v.sum() > 0 and mask_o.sum() > 0:
-            plotter.plot_energiebalans_dag(data_verbruik[mask_v], data_opbrengst[mask_o], max_afname, max_teruglevering, _positief=zonnedata_pos_neg, _toon_verbruik=toon_verbruik, _toon_opbrengst=toon_opbrengst, _toon_saldo=toon_saldo, _toon_saldo_beperkt=toon_saldo_beperkt, _toon_limieten=toon_limieten, _toon_limiet_overschrijdingen=toon_limiet_overschrijdingen)
-        else:
-            st.info("Geen data voor deze dag.")
-
-        clusters = st.number_input("Aantal clusters voor verbruiksprofielen", min_value=2, max_value=10, value=4, key="aantal_clusters")
-        cluster_typical_profiles(data_verbruik, n_clusters=clusters, use_weekend=True)
-
+    # 1. Dagbalans jaar
     with tab3:
         st.markdown("#### Dagbalans over gehele periode")
-        def plot_dagtotalen_en_verschil(verbruik: pd.Series, opbrengst: pd.Series):
-            """
-            Plot per dag de som van verbruik, opbrengst en het verschil (opbrengst - verbruik).
-            """
-            # Zorg dat indexen datetime zijn
-            verbruik = verbruik.copy()
-            opbrengst = opbrengst.copy()
-            verbruik.index = pd.to_datetime(verbruik.index)
-            opbrengst.index = pd.to_datetime(opbrengst.index)
-            # Resample per dag
-            verbruik_per_dag = verbruik.resample('D').sum()
-            opbrengst_per_dag = opbrengst.resample('D').sum()
-            verschil_per_dag = -opbrengst_per_dag + verbruik_per_dag
-            totaal_verbruik = verbruik_per_dag.sum()*0.25
-            totaal_opbrengst = opbrengst_per_dag.sum()*0.25
-            st.markdown(f"""
-            <p style="font-size:18px;">
-            <h1>Totaal verbruik: {totaal_verbruik:.2f} kWh</h1>
-            <h1>Totaal opbrengst: {totaal_opbrengst:.2f} kWh</h1>
-            <h1>Verschil (verbruik - opbrengst): {-totaal_opbrengst + totaal_verbruik:.2f} kWh</h1>
-            </p>""", unsafe_allow_html=True)
 
-            fig, ax = plt.subplots(figsize=(12, 6))
-            ax.plot(verbruik_per_dag.index, verbruik_per_dag, label="Verbruik per dag", color="red")
-            ax.plot(opbrengst_per_dag.index, -opbrengst_per_dag, label="Opbrengst per dag", color="green")
-            ax.plot(verschil_per_dag.index, verschil_per_dag, label="Verschil (opbrengst - verbruik)", color="blue")
-            ax.axhline(0, color='black', linewidth=0.8, linestyle='--')
-            ax.set_xlabel("Datum")
-            ax.set_ylabel("Energie (som per dag)")
-            ax.set_title("Dagtotalen verbruik, opbrengst en verschil")
+        
 
-            ax.legend()
-            ax.grid(True)
-            fig.tight_layout()
-            st.pyplot(fig)
-            plt.close(fig); gc.collect()
+        # AANROEP
+        plot_dag_en_maand(data_verbruik, data_opbrengst)
+        st.markdown("""
+        **Toelichting:**
+        - Daglijnen: verbruik (boven 0), opbrengst (onder 0) en verschil (verbruik - opbrengst)
+        - Maandstaven: verbruik, opbrengst en overschot (alleen positieve delen van opbrengst - verbruik per kwartier)
+        - Alle waarden in kWh (kwartierdata in kW * 0,25)
+        """)
 
-        plot_dagtotalen_en_verschil(data_verbruik, data_opbrengst)
-
-    with tab4:
-        st.markdown("#### Opbrengst vs Verbruik (kies kolommen)")
-        #kolom_v = st.selectbox("Kies verbruikskolom", df_verbruik.columns)
-        #kolom_o = st.selectbox("Kies opbrengstkolom", df_opbrengst.columns)
-        show_opbrengst = st.checkbox("Toon opbrengst", value=True, key="reeksen_opbrengst")
-        show_verbruik = st.checkbox("Toon verbruik", value=True, key="reeksen_verbruik")
-        show_verschil = st.checkbox("Toon verschil", value=True, key="reeksen_verschil")
-        plotter.plot_reeksen_en_verschil(_verbruik=data_verbruik, _opbrengst=data_opbrengst, show_opbrengst=show_opbrengst, show_verbruik=show_verbruik, show_verschil=show_verschil, _max_afname=max_afname, _max_teruglevering=max_teruglevering)
-
-    with tab5:
-        st.markdown("#### Heatmap: Max kwartierverbruik per dag (% van limiet)")
-        def plot_max_dagpiek_heatmap(verbruik: pd.Series, opbrengst: pd.Series, max_afname: float):
-            verbruik = verbruik.astype("float32")
-            opbrengst = opbrengst.astype("float32")
-            min_len = min(len(verbruik), len(opbrengst))
-            verbruik = verbruik.iloc[:min_len]
-            opbrengst = opbrengst.iloc[:min_len]
-
-            verschil = (verbruik - opbrengst)
-            piek_per_dag = verschil.resample("D").max()
-            perc_per_dag = (piek_per_dag / max_afname) * 100.0
-
-            df = pd.DataFrame({"perc": perc_per_dag})
-            df["day"] = df.index.day
-            df["month"] = df.index.month
-            pivot = df.pivot_table(index="month", columns="day", values="perc", aggfunc="mean")
-
-            fig, ax = plt.subplots(figsize=(12, 6))
-            im = ax.imshow(pivot.values, aspect="auto", vmin=0, vmax=100)
-            ax.set_yticks(range(len(pivot.index)))
-            ax.set_yticklabels([pd.Timestamp(year=2000, month=m, day=1).strftime("%B") for m in pivot.index])
-            ax.set_xticks(range(pivot.shape[1]))
-            ax.set_xticklabels(pivot.columns)
-            ax.set_xlabel("Day of month")
-            ax.set_ylabel("Month")
-            ax.set_title("Max kwartierverbruik per dag (% van max afname)")
-            fig.colorbar(im, ax=ax, label="% van limiet")
-            fig.tight_layout()
-            st.pyplot(fig)
-            plt.close(fig); gc.collect()
-
-            overschrijdingen = (piek_per_dag > max_afname).sum()
-            totaal_dagen = piek_per_dag.shape[0]
-            st.write(
-                f"📅 Hoogste piek: {perc_per_dag.idxmax().date()} – {perc_per_dag.max():.1f}% "
-                f"| 🚨 Overschrijdingen: {overschrijdingen}/{totaal_dagen} ({overschrijdingen/totaal_dagen:.1%})"
-            )
-
-
-        plot_max_dagpiek_heatmap(data_verbruik, data_opbrengst, max_afname)
-
+    # 2. Weekoverzicht
     with tab6:
         st.markdown("#### Weekoverzicht")
         plot_weektrends(data_verbruik, title="Weektrends verbruik kwartierdata")
@@ -482,36 +284,74 @@ if uploaded_verbruik and uploaded_opbrengst:
         plot_weektrends_summary(data_verbruik, title="Gemiddelde, max en min week verbruik (kwartierdata)")
         plot_weektrends_per_quartile_stats(data_verbruik, title="Gemiddelde, max en min per kwartier van de week")
 
+    # 3. Typische Dagprofielen
     with tab7:
-        st.markdown("#### Accu module")
-        with st.expander("Toelichting accu module"): 
-            capaciteit = st.number_input("Accu capaciteit (kWh)", min_value=1.0, value=10.0)
-            
-            peak_shaven = st.checkbox("Peak shaven? (accu gebruiken om pieken te dempen)", value=True, key="peak_shaven")
-            pv_zelf_consumptie = st.checkbox("PV zelf consumptie? (accu gebruiken om pv opbrengst op te slaan en 's nachts te ontladen)", value=True, key="pv_zelf_consumptie")
-            state_of_charge = st.checkbox("State of Charge gebruiken? (Gebruik state of charge om 's nachts te laden uit net om ochtendpiek op te vangen)", value=False, key="state_of_charge")
-            var_tarieven = st.checkbox("Variabele tarieven? (Gebruik variabele tarieven om accu te laden als stroom goedkoop is)", value=False, key="var_tarieven")
-            if state_of_charge is True:
-                st.slider("Minimale state of charge (%)", min_value=0, max_value=100, value=40, key="min_soc")
-                st.number_input("Maximale laadsnelheid (kW)", min_value=0.0, value=2.0, key="max_charge_rate")
-            if st.button("📈 Simuleer accu (week)"):
-                plot_accu_week_simulatie(...)
-                plot_accu_week_simulatie_select(...)
-        
+        st.markdown("#### Typische Dagprofielen")
+        clusters = st.number_input("Aantal clusters voor verbruiksprofielen", min_value=2, max_value=10, value=4, key="aantal_clusters_typische_dag")
+        cluster_typical_profiles(data_verbruik, n_clusters=clusters, use_weekend=True)
+
+    # 4. Heatmap
+    with tab4:
+        st.markdown("#### Heatmap: Max kwartierverbruik per dag (% van limiet)")
+        grootste_overschrijding_dag = None
         
 
-    df_out = pd.DataFrame({"Verbruik (kW)": data_verbruik, "Opbrengst (kW)": data_opbrengst})
-    csv_bytes = df_out.to_csv(index=True).encode("utf-8")
-    st.download_button("📥 Download CSV", data=csv_bytes, file_name="kwartierdata_resultaten.csv", mime="text/csv")
+        grootste_overschrijding_dag = plot_max_dagpiek_heatmap(data_verbruik, data_opbrengst, max_afname)
 
-    # Alleen als je per se Excel wilt:
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        df_out.to_excel(writer, sheet_name="Resultaten")
-    excel_bytes = output.getvalue()
-    st.download_button("📥 Download Excel", data=excel_bytes,
-                    file_name="kwartierdata_resultaten.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    # 5. Energiebalans dag
+    with tab5:
+        st.markdown("#### Energiebalans op een dag")
+        # Gebruik de dag met grootste overschrijding als default
+        default_dag = grootste_overschrijding_dag if grootste_overschrijding_dag is not None else data_verbruik.index[0].date()
+        dag = st.date_input("Kies een dag", value=default_dag)
+        st.write(f"🔍 Gekozen dag: {dag}")
+
+        dag = pd.to_datetime(dag)
+        mask_v = data_verbruik.index.normalize() == dag
+        mask_o = data_opbrengst.index.normalize() == dag
+        verbruik_op_dag = data_verbruik[mask_v]
+        opbrengst_op_dag = data_opbrengst[mask_o]
+        toon_verbruik = st.checkbox("Toon verbruik", value=True, key="dag_verbruik")
+        toon_opbrengst = st.checkbox("Toon opbrengst", value=True, key="dag_opbrengst")
+        toon_saldo = st.checkbox("Toon saldo", value=False, key="dag_saldo")
+        toon_saldo_beperkt = st.checkbox("Toon saldo (beperkt)", value=True, key="dag_saldo_beperkt")
+        toon_limieten = st.checkbox("Toon limieten", value=True, key="dag_limieten")
+        toon_limiet_overschrijdingen = st.checkbox("Toon limiet overschrijdingen", value=False, key="dag_limiet_overschrijdingen")
+
+        if mask_v.sum() > 0 and mask_o.sum() > 0:
+            plotter.plot_energiebalans_dag(data_verbruik[mask_v], data_opbrengst[mask_o], max_afname, max_teruglevering, _positief=zonnedata_pos_neg, _toon_verbruik=toon_verbruik, _toon_opbrengst=toon_opbrengst, _toon_saldo=toon_saldo, _toon_saldo_beperkt=toon_saldo_beperkt, _toon_limieten=toon_limieten, _toon_limiet_overschrijdingen=toon_limiet_overschrijdingen)
+        else:
+            st.info("Geen data voor deze dag.")
+
+    # 6. Opbrengst vs Verbruik
+    with tab2:
+        st.markdown("#### Opbrengst vs Verbruik (kies kolommen)")
+        show_opbrengst = st.checkbox("Toon opbrengst", value=True, key="reeksen_opbrengst")
+        show_verbruik = st.checkbox("Toon verbruik", value=True, key="reeksen_verbruik")
+        show_verschil = st.checkbox("Toon verschil", value=True, key="reeksen_verschil")
+        plotter.plot_reeksen_en_verschil(_verbruik=data_verbruik, _opbrengst=data_opbrengst, show_opbrengst=show_opbrengst, show_verbruik=show_verbruik, show_verschil=show_verschil, _max_afname=max_afname, _max_teruglevering=max_teruglevering)
+
+    # 7. Belastingduurkromme
+    with tab1:
+        st.markdown("#### Belastingduurkromme (op basis van verbruik)")
+        plotter.plot_belastingduurkromme(data_verbruik)
+        
+
+    try:
+        df_out = pd.DataFrame({"Verbruik (kWh)": data_verbruik/4, "Opbrengst (kWh)": data_opbrengst/4})
+        csv_bytes = df_out.to_csv(index=True).encode("utf-8")
+        st.download_button("📥 Download CSV", data=csv_bytes, file_name="kwartierdata_resultaten.csv", mime="text/csv")
+
+        # Alleen als je per se Excel wilt:
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+            df_out.to_excel(writer, sheet_name="Resultaten")
+        excel_bytes = output.getvalue()
+        st.download_button("📥 Download Excel", data=excel_bytes,
+                        file_name="kwartierdata_resultaten.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    except Exception as e:
+        st.error(f"Fout bij aanmaken downloadbestanden: {e}")
     del df_out, csv_bytes, excel_bytes, output
     gc.collect()
 
