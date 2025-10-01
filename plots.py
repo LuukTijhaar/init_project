@@ -70,7 +70,7 @@ def plot_dag_en_maand(verbruik: pd.Series, opbrengst: pd.Series):
     fig1, ax1 = plt.subplots(figsize=(12, 5))
     ax1.plot(dag.index, dag["verbruik_kWh"], label="Verbruik per dag (kWh)")
     # opbrengst negatief tekenen voor visuele scheiding
-    ax1.plot(dag.index, -dag["opbrengst_kWh"], label="Opbrengst per dag (kWh, negatief getekend)")
+    ax1.plot(dag.index, dag["opbrengst_kWh"], label="Opbrengst per dag (kWh, negatief getekend)")
     ax1.plot(dag.index, dag["verschil_kWh"], label="Verschil (verbruik − opbrengst) per dag (kWh)")
     ax1.axhline(0, linewidth=0.8, linestyle="--")
     ax1.set_xlabel("Datum")
