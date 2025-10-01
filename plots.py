@@ -11,41 +11,66 @@ def plot_dag_en_maand(verbruik: pd.Series, opbrengst: pd.Series):
     - Maandstaven (kWh/maand) voor verbruik, opbrengst en overschot (max(opbrengst - verbruik, 0) per kwartier)
     Aannames:
     - Input is kwartierwaarden in kW → kWh = kW * 0,25
+    Retourneert: (fig1, fig2, samenvatting_dict)
     """
 
-    # 1) Netjes alignen en naar kWh brengen
+    # --- 1) Timestamps normaliseren & alignen op intersectie ---
     v = verbruik.copy()
     o = opbrengst.copy()
-    v.index = pd.to_datetime(v.index)
-    o.index = pd.to_datetime(o.index)
-    df = pd.concat([v.rename("verbruik_kW"), o.rename("opbrengst_kW")], axis=1).dropna().sort_index()
+    if not isinstance(v.index, pd.DatetimeIndex):
+        v.index = pd.to_datetime(v.index)
+    if not isinstance(o.index, pd.DatetimeIndex):
+        o.index = pd.to_datetime(o.index)
 
-    # kW per kwartier → kWh per kwartier
+    v = v.sort_index()
+    o = o.sort_index()
+
+    # Neem alleen overlappende timestamps (inner join)
+    common_idx = v.index.intersection(o.index)
+    if common_idx.empty:
+        raise ValueError("Geen overlappende timestamps tussen verbruik en opbrengst.")
+
+    v = v.loc[common_idx].astype(float)
+    o = o.loc[common_idx].astype(float)
+
+    # --- 2) kW kwartier → kWh kwartier ---
+    df = pd.DataFrame({
+        "verbruik_kW": v,
+        "opbrengst_kW": o,
+    })
+    # geef NaN’s geen kans om alles stuk te maken
+    df = df.replace([np.inf, -np.inf], np.nan)
+
     df["verbruik_kWh"]  = df["verbruik_kW"]  * 0.25
     df["opbrengst_kWh"] = df["opbrengst_kW"] * 0.25
 
-    # 2) Dagtotalen
-    dag = df[["verbruik_kWh", "opbrengst_kWh"]].resample("D").sum()
+    # --- 3) Dagtotalen ---
+    # min_count=1 voorkomt dat lege dagen 0 worden; ze blijven NaN (betere diagnose)
+    dag = df[["verbruik_kWh", "opbrengst_kWh"]].resample("D").sum(min_count=1)
     dag["verschil_kWh"] = dag["verbruik_kWh"] - dag["opbrengst_kWh"]
 
-    # 3) Maandtotalen
-    # Overschot = alleen positieve delen van (opbrengst - verbruik) per kwartier optellen
+    # Als alles NaN is, stoppen
+    if dag[["verbruik_kWh","opbrengst_kWh","verschil_kWh"]].dropna(how="all").empty:
+        raise ValueError("Na resampling is er geen bruikbare dagdata (allemaal NaN). Controleer je inputreeksen.")
+
+    # --- 4) Maandtotalen ---
     df["overschot_kWh_kwartier"] = (df["opbrengst_kWh"] - df["verbruik_kWh"]).clip(lower=0)
     maand = pd.DataFrame({
-        "verbruik_kWh":  df["verbruik_kWh"].resample("M").sum(),
-        "opbrengst_kWh": df["opbrengst_kWh"].resample("M").sum(),
-        "overschot_kWh": df["overschot_kWh_kwartier"].resample("M").sum(),
+        "verbruik_kWh":  df["verbruik_kWh"].resample("M").sum(min_count=1),
+        "opbrengst_kWh": df["opbrengst_kWh"].resample("M").sum(min_count=1),
+        "overschot_kWh": df["overschot_kWh_kwartier"].resample("M").sum(min_count=1),
     })
 
-    # 4) Totale sommen (kWh)
-    totaal_verbruik  = dag["verbruik_kWh"].sum()
-    totaal_opbrengst = dag["opbrengst_kWh"].sum()
+    # --- 5) Totale sommen ---
+    totaal_verbruik  = dag["verbruik_kWh"].sum(skipna=True)
+    totaal_opbrengst = dag["opbrengst_kWh"].sum(skipna=True)
     totaal_verschil  = totaal_verbruik - totaal_opbrengst
 
-    # 5) Plot: daglijnen (kWh/dag)
+    # --- 6) Plot: daglijnen (kWh/dag) ---
     fig1, ax1 = plt.subplots(figsize=(12, 5))
     ax1.plot(dag.index, dag["verbruik_kWh"], label="Verbruik per dag (kWh)")
-    ax1.plot(dag.index, dag["opbrengst_kWh"], label="Opbrengst per dag (kWh, negatief getekend)")
+    # opbrengst negatief tekenen voor visuele scheiding
+    ax1.plot(dag.index, -dag["opbrengst_kWh"], label="Opbrengst per dag (kWh, negatief getekend)")
     ax1.plot(dag.index, dag["verschil_kWh"], label="Verschil (verbruik − opbrengst) per dag (kWh)")
     ax1.axhline(0, linewidth=0.8, linestyle="--")
     ax1.set_xlabel("Datum")
@@ -55,18 +80,18 @@ def plot_dag_en_maand(verbruik: pd.Series, opbrengst: pd.Series):
     ax1.grid(True, alpha=0.3)
     fig1.tight_layout()
 
-    # 6) Plot: maandstaven (kWh/maand) – gegroepeerd
-    if not maand.empty:
+    # --- 7) Plot: maandstaven (kWh/maand) ---
+    fig2 = None
+    if not maand.dropna(how="all").empty:
         x = maand.index
         labels = [d.strftime("%Y-%m") for d in x]
         width = 0.28
-        import numpy as np
         idx = np.arange(len(x))
 
         fig2, ax2 = plt.subplots(figsize=(12, 5))
-        ax2.bar(idx - width, maand["verbruik_kWh"].values,  width, label="Verbruik (kWh/maand)")
-        ax2.bar(idx,         maand["opbrengst_kWh"].values, width, label="Opbrengst (kWh/maand)")
-        ax2.bar(idx + width, maand["overschot_kWh"].values, width, label="Overschot (kWh/maand)")
+        ax2.bar(idx - width, maand["verbruik_kWh"].fillna(0).values,  width, label="Verbruik (kWh/maand)")
+        ax2.bar(idx,         maand["opbrengst_kWh"].fillna(0).values, width, label="Opbrengst (kWh/maand)")
+        ax2.bar(idx + width, maand["overschot_kWh"].fillna(0).values, width, label="Overschot (kWh/maand)")
 
         ax2.set_xticks(idx)
         ax2.set_xticklabels(labels, rotation=45, ha="right")
@@ -75,6 +100,29 @@ def plot_dag_en_maand(verbruik: pd.Series, opbrengst: pd.Series):
         ax2.legend()
         ax2.grid(True, axis="y", alpha=0.3)
         fig2.tight_layout()
+
+    # --- 8) Automatisch tonen in Streamlit (als beschikbaar) ---
+    try:
+        import streamlit as st
+        st.pyplot(fig1)
+        if fig2 is not None:
+            st.pyplot(fig2)
+    except Exception:
+        # niet in Streamlit? dan laat de caller het maar tonen/opslaan
+        pass
+
+    # Optioneel: niet sluiten hier; laat de caller bepalen
+    # plt.close(fig1); 
+    # if fig2: plt.close(fig2)
+
+    summary = {
+        "totaal_verbruik_kWh": float(totaal_verbruik),
+        "totaal_opbrengst_kWh": float(totaal_opbrengst),
+        "totaal_verschil_kWh": float(totaal_verschil),
+        "dagen": int(len(dag)),
+        "maanden": int(len(maand)),
+    }
+    return fig1, fig2, summary
 
 def plot_max_dagpiek_heatmap(verbruik: pd.Series,
                              opbrengst: pd.Series,
